@@ -39,8 +39,8 @@ voc_ind = dict((s,i) for i,s in enumerate(voc))
 ind_tokens = [voc_ind[token] for token in tokens if token in voc]
 
 ### for testing pourposes you can use a small subset of the data
-#max_data = len(ind_tokens)
-max_data = 4000
+max_data = len(ind_tokens)
+#max_data = 4000
 ind_tokens = ind_tokens[:max_data]
 
 print('vocabulary size:',len(voc))
@@ -55,14 +55,15 @@ from keras.callbacks import ModelCheckpoint
 from keras.models import load_model
 
 ##### set parameters of the model
-max_len = 150
-lstm_units = 300
+## WATCHOUT: cannot be changed when retraining
+max_len = 30
+lstm_units = 512
+optimizer = 'adam' 
 #####
 
 ##### set parameters of the training process
-batch_size = 512
-epochs = 5
-optimizer = 'sgd' ## WATCHOUT: not sure if optimizer can be changed when retraining
+batch_size = 128
+epochs = 10
 #####
 
 if retraining == True:
