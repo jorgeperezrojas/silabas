@@ -56,14 +56,14 @@ print('validation data size:',len(ind_val_tokens))
 ## WATCHOUT: cannot be changed when retraining
 max_len = 80
 lstm_units = 400
-dropout = 0.55
+dropout = 0.6
 optimizer = 'adam'
 impl = 2
 #####
 
 ##### set parameters of the training process
 batch_size = 64
-epochs = 2
+epochs = 30
 #####
 
 if retraining == True:
@@ -115,7 +115,7 @@ model_output = lstm_model.fit_generator(
 
 # save history
 outfile_history = out_directory_train_history + out_model_pref + time_pref + \
-    '{0:03d}_{1:03d}_{2:.2f}_{3}_'.format(max_len,lstm_units,dropout,optimizer) + \
+    '{0:03d}_{1:03d}_{2:.2f}_{3:03d}_{4}_'.format(max_len,lstm_units,dropout,epochs,optimizer) + \
     '.txt'
 
 with open(outfile_history,'w') as out: 
