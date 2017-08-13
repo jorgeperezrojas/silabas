@@ -9,6 +9,7 @@ from keras import metrics
 from keras.callbacks import ModelCheckpoint
 from keras.models import load_model
 from utils import generator, next_token, next_token_generator
+import time
 
 #################
 # change this if retraining
@@ -18,6 +19,15 @@ retraining = False
 previous_model_file = ''
 
 #################
+## output parameters
+
+out_directory_model = '../models/'
+out_model_pref = 'lstm_model_'
+out_directory_train_history = '../train_history/'
+time_pref = time.strftime('%y%m%d.%H%M') + '_'
+
+#################
+## input files
 
 train_text_file = '../data/biblia_ntv_train.txt'
 val_text_file = '../data/biblia_ntv_val.txt'
@@ -45,15 +55,15 @@ print('validation data size:',len(ind_val_tokens))
 ##### set parameters of the model
 ## WATCHOUT: cannot be changed when retraining
 max_len = 80
-lstm_units = 256
-dropout = 0.3
+lstm_units = 400
+dropout = 0.55
 optimizer = 'adam'
 impl = 2
 #####
 
 ##### set parameters of the training process
 batch_size = 64
-epochs = 5
+epochs = 2
 #####
 
 if retraining == True:
@@ -72,7 +82,20 @@ else:
 
 lstm_model.summary()
 
-outfile = '../models/lstm_model_' + str(max_len) + '_' + str(lstm_units) + '_' + str(dropout) + '_{val_loss:.4f}_' + optimizer + '.h5'
+
+outfile = out_directory_model + out_model_pref + time_pref + \
+    '{0:03d}_{1:03d}_{2:.2f}_{3}_'.format(max_len,lstm_units,dropout,optimizer) + \
+    '{epoch:03d}_{loss:.2f}_{val_loss:.2f}.h5'
+
+# outfile = '../models/lstm_model_' + 
+#     str(max_len) + '_' + 
+#     str(lstm_units) + '_' + 
+#     str(dropout) + '_' +
+#     '{epoch:03d}_' + 
+#     '{loss:.2f}_' + 
+#     '{val_loss:.2f}_' + 
+#     optimizer + '_'
+#     '.h5'
 
 checkpoint = ModelCheckpoint(
     outfile, 
@@ -81,7 +104,7 @@ checkpoint = ModelCheckpoint(
     save_best_only=True ## save best
 )
 
-lstm_model.fit_generator(
+model_output = lstm_model.fit_generator(
     generator(batch_size, ind_train_tokens, voc, max_len), 
     (len(ind_train_tokens) - max_len)/batch_size + 1,
     validation_data=generator(batch_size, ind_val_tokens, voc, max_len),
@@ -90,11 +113,12 @@ lstm_model.fit_generator(
     callbacks=[checkpoint]
 )
 
+# save history
+outfile_history = out_directory_train_history + out_model_pref + time_pref + \
+    '{0:03d}_{1:03d}_{2:.2f}_{3}_'.format(max_len,lstm_units,dropout,optimizer) + \
+    '.txt'
 
-
-
-
-
-
-
+with open(outfile_history,'w') as out: 
+    out.write(str(model_output.history))
+    out.write('\n')
 
