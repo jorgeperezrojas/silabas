@@ -15,8 +15,8 @@ import time
 # change this if retraining
 #################
 
-retraining = False
-previous_model_file = ''
+retraining = True
+previous_model_file = '../models/lstm_model_170814.0259_100_512_0.50_adam_034_3.26_2.92_0.62.h5'
 
 #################
 ## output parameters
@@ -56,14 +56,14 @@ print('validation data size:',len(ind_val_tokens))
 ## WATCHOUT: cannot be changed when retraining
 max_len = 100
 lstm_units = 512
-dropout = 0.4
+dropout = 0.5
 optimizer = 'adam'
 impl = 2
 #####
 
 ##### set parameters of the training process
 batch_size = 64
-epochs = 40
+epochs = 15
 #####
 
 if retraining == True:
@@ -103,6 +103,9 @@ model_output = lstm_model.fit_generator(
     epochs=epochs, 
     callbacks=[checkpoint]
 )
+
+# save also the last state (to continue training if needed)
+lstm_modle.save('final_' + outfile)
 
 # save history
 outfile_history = out_directory_train_history + out_model_pref + time_pref + \
