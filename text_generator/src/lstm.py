@@ -54,16 +54,16 @@ print('validation data size:',len(ind_val_tokens))
 
 ##### set parameters of the model
 ## WATCHOUT: cannot be changed when retraining
-max_len = 80
-lstm_units = 400
-dropout = 0.6
+max_len = 100
+lstm_units = 512
+dropout = 0.4
 optimizer = 'adam'
 impl = 2
 #####
 
 ##### set parameters of the training process
 batch_size = 64
-epochs = 30
+epochs = 40
 #####
 
 if retraining == True:
@@ -85,21 +85,12 @@ lstm_model.summary()
 
 outfile = out_directory_model + out_model_pref + time_pref + \
     '{0:03d}_{1:03d}_{2:.2f}_{3}_'.format(max_len,lstm_units,dropout,optimizer) + \
-    '{epoch:03d}_{loss:.2f}_{val_loss:.2f}.h5'
-
-# outfile = '../models/lstm_model_' + 
-#     str(max_len) + '_' + 
-#     str(lstm_units) + '_' + 
-#     str(dropout) + '_' +
-#     '{epoch:03d}_' + 
-#     '{loss:.2f}_' + 
-#     '{val_loss:.2f}_' + 
-#     optimizer + '_'
-#     '.h5'
+    '{epoch:03d}_{loss:.2f}_{val_loss:.2f}_{val_top_k_categorical_accuracy:.2f}.h5'
 
 checkpoint = ModelCheckpoint(
     outfile, 
-    monitor='val_loss', 
+    # monitor='val_loss', 
+    monitor='val_top_k_categorical_accuracy',
     verbose=1, 
     save_best_only=True ## save best
 )
