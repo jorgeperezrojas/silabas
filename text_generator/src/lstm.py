@@ -15,7 +15,7 @@ import time
 # change this if retraining
 #################
 
-retraining = True
+retraining = False
 previous_model_file = '../models/lstm_model_170814.0259_100_512_0.50_adam_034_3.26_2.92_0.62.h5'
 
 #################
@@ -57,13 +57,14 @@ print('validation data size:',len(ind_val_tokens))
 max_len = 100
 lstm_units = 512
 dropout = 0.5
+rec_dropout = 0.2
 optimizer = 'adam'
 impl = 2
 #####
 
 ##### set parameters of the training process
 batch_size = 64
-epochs = 15
+epochs = 50
 #####
 
 if retraining == True:
@@ -72,9 +73,10 @@ if retraining == True:
 
 else:
     lstm_model = Sequential()
-    lstm_model.add(LSTM(lstm_units, input_shape=(max_len, len(voc)), implementation=impl, return_sequences=True))
+    lstm_model.add(LSTM(lstm_units, input_shape=(max_len, len(voc)), recurrent_dropout=rec_dropout, 
+        implementation=impl, return_sequences=True))
     lstm_model.add(Dropout(dropout))
-    lstm_model.add(LSTM(lstm_units, implementation=impl))
+    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, implementation=impl))
     lstm_model.add(Dropout(dropout))
     lstm_model.add(Dense(len(voc), activation='softmax'))
     lstm_model.compile(loss='categorical_crossentropy', optimizer=optimizer, 
@@ -84,7 +86,7 @@ lstm_model.summary()
 
 
 outfile = out_directory_model + out_model_pref + time_pref + \
-    '{0:03d}_{1:03d}_{2:.2f}_{3}_'.format(max_len,lstm_units,dropout,optimizer) + \
+    '{0:03d}_{1:03d}_{2:.2f}_{3:.2f}_{4}_'.format(max_len,lstm_units,dropout,rec_dropout,optimizer) + \
     '{epoch:03d}_{loss:.2f}_{val_loss:.2f}_{val_top_k_categorical_accuracy:.2f}.h5'
 
 checkpoint = ModelCheckpoint(
@@ -105,13 +107,16 @@ model_output = lstm_model.fit_generator(
 )
 
 # save also the last state (to continue training if needed)
-lstm_modle.save('final_' + outfile)
+final_model_file = out_directory_model + 'final_' + out_model_pref + time_pref + \
+    '{0:03d}_{1:03d}_{2:.2f}_{3:.2f}_{4:03d}_{5}'.format(max_len,lstm_units,dropout,rec_dropout,epochs,optimizer) + '.h5'
+print('saving last model:', final_model_file)
+lstm_model.save(final_model_file)
 
 # save history
 outfile_history = out_directory_train_history + out_model_pref + time_pref + \
-    '{0:03d}_{1:03d}_{2:.2f}_{3:03d}_{4}_'.format(max_len,lstm_units,dropout,epochs,optimizer) + \
-    '.txt'
+    '{0:03d}_{1:03d}_{2:.2f}_{3:.2f}_{4:03d}_{5}'.format(max_len,lstm_units,dropout,rec_dropout,epochs,optimizer) + '.txt'
 
+print('saving history:', outfile_history)
 with open(outfile_history,'w') as out: 
     out.write(str(model_output.history))
     out.write('\n')
