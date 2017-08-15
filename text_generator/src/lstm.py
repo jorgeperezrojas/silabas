@@ -16,7 +16,7 @@ import time
 #################
 
 retraining = False
-previous_model_file = '../models/lstm_model_170814.0259_100_512_0.50_adam_034_3.26_2.92_0.62.h5'
+previous_model_file = '../models/final_lstm_model_170815.0047_100_512_0.00_0.00_010_adam.h5'
 
 #################
 ## output parameters
@@ -29,8 +29,8 @@ time_pref = time.strftime('%y%m%d.%H%M') + '_'
 #################
 ## input files
 
-train_text_file = '../data/biblia_ntv_train.txt'
-val_text_file = '../data/biblia_ntv_val.txt'
+train_text_file = '../data/biblia_ntv_train.sample.txt'
+val_text_file = '../data/biblia_ntv_val.sample.txt'
 voc_file = '../data/biblia_ntv_voc.txt'
 
 train_tokens = open(train_text_file).read().split()
@@ -56,15 +56,15 @@ print('validation data size:',len(ind_val_tokens))
 ## WATCHOUT: cannot be changed when retraining
 max_len = 100
 lstm_units = 512
-dropout = 0.5
-rec_dropout = 0.2
+dropout = 0.3
+rec_dropout = 0.3
 optimizer = 'adam'
-impl = 2
+impl = 2 # BE CAREFULL!!! must be 2 for gpu
 #####
 
 ##### set parameters of the training process
-batch_size = 64
-epochs = 50
+batch_size = 256
+epochs = 40
 #####
 
 if retraining == True:
@@ -76,11 +76,13 @@ else:
     lstm_model.add(LSTM(lstm_units, input_shape=(max_len, len(voc)), recurrent_dropout=rec_dropout, 
         implementation=impl, return_sequences=True))
     lstm_model.add(Dropout(dropout))
-    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, implementation=impl))
-    lstm_model.add(Dropout(dropout))
+    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, implementation=impl, return_sequences=True))
+    lstm_model.add(Dropout(dropout/2))
+    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout/2, implementation=impl))
     lstm_model.add(Dense(len(voc), activation='softmax'))
     lstm_model.compile(loss='categorical_crossentropy', optimizer=optimizer, 
         metrics=['top_k_categorical_accuracy'])
+    print('compiling...')
 
 lstm_model.summary()
 
