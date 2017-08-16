@@ -1,39 +1,173 @@
 # coding: utf-8
 import numpy as np
 import random
+import re
+from separador_silabas import silabas
+import matplotlib.pyplot as plt 
 
-def generator(batch_size, ind_tokens, voc, max_len):
-    n_features = len(voc)
-    while 1:
-        for i in range(0, len(ind_tokens) - max_len, batch_size):
+class ContinuousGenerator:
+    """Class to wrap a generator to train lstms with text as a continous stream"""
 
-            # consider the case of a possible small final batch_size
-            actual_batch_size = min(batch_size, len(ind_tokens) - max_len - i)
+    def __init__(self, batch_size, ind_tokens, voc, max_len):
+        self.ind_tokens = ind_tokens
+        self.voc = voc
+        self.max_len = max_len
+        self.batch_size = batch_size
+        self.steps_per_epoch = int(len(ind_tokens) / batch_size) + 1
+        
+    def generator(self):
+        voc = self.voc
+        ind_tokens = self.ind_tokens
+        batch_size = self.batch_size
+        max_len = self.max_len
 
-            X_batch = np.zeros((actual_batch_size, max_len, n_features), dtype = np.bool)
-            Y_batch = np.zeros((actual_batch_size, n_features), dtype = np.bool)
+        n_features = len(voc)
 
-            for j in range(0, actual_batch_size): # iteration for every batch member
-                for k, ind_token in enumerate(ind_tokens[i+j: i+j+max_len]): # iteration for every token
-                    X_batch[j, k, ind_token] = 1
-                Y_batch[j,ind_tokens[i+j+max_len]] = 1
-            yield X_batch, Y_batch
+        X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
+        Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+        current_batch_index = 0
+
+        while 1:
+            i = random.choice(range(0, len(ind_tokens) - max_len, batch_size))
+            for k, ind_token in enumerate(ind_tokens[i: i+max_len]): # iteration for every token
+                X_batch[current_batch_index, k, ind_token] = 1
+            Y_batch[current_batch_index,ind_tokens[i+max_len]] = 1
+
+            current_batch_index += 1
+
+            if current_batch_index == batch_size:
+                yield X_batch, Y_batch
+                current_batch_index = 0
+                X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
+                Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+
+
+            # for i in range(0, len(ind_tokens) - max_len, batch_size):
+
+            #     # consider the case of a possible small final batch_size
+            #     actual_batch_size = min(batch_size, len(ind_tokens) - max_len - i)
+
+            #     X_batch = np.zeros((actual_batch_size, max_len, n_features), dtype = np.bool)
+            #     Y_batch = np.zeros((actual_batch_size, n_features), dtype = np.bool)
+
+            #     for j in range(0, actual_batch_size): # iteration for every batch member
+            #         for k, ind_token in enumerate(ind_tokens[i+j: i+j+max_len]): # iteration for every token
+            #             X_batch[j, k, ind_token] = 1
+            #         Y_batch[j,ind_tokens[i+j+max_len]] = 1
+            #     yield X_batch, Y_batch
+
+class ParByParGenerator:
+    """Class to wrap a generator to train lstms paragraph by paragraph"""
+
+    def __init__(self, batch_size, ind_tokens, voc, max_len, split_symbol_index, paragraphs_to_join = 1, mask_value = 0):
+        self.ind_tokens = ind_tokens
+        self.voc = voc
+        self.max_len = max_len
+        self.batch_size = batch_size
+        self.mask_value = mask_value
+
+        # first split paragraphs (not adding the split symbol)
+        self.paragraphs = []
+        current_par = []
+        counter = 1
+
+        total_number_of_examples = 0
+
+        for ind in ind_tokens:
+            if ind != split_symbol_index:
+                current_par.append(ind)
+            elif counter < paragraphs_to_join:
+                counter += 1
+            else:
+                current_par.append(split_symbol_index)
+                self.paragraphs.append(current_par)
+                total_number_of_examples += (len(current_par) - 1) if len(current_par) < max_len else (len(current_par) - max_len - 1)
+                counter = 1
+                current_par = []
+        # add a possible final paragraph
+        if current_par != []:
+            self.paragraphs.append(current_par)
+            total_number_of_examples += (len(current_par) - 1) if len(current_par) < max_len else (len(current_par) - max_len - 1)
+
+        # update steps per epoch
+        self.steps_per_epoch = int(total_number_of_examples / batch_size) + 1
+
+
+    def generator(self):
+        voc = self.voc
+        ind_tokens = self.ind_tokens
+        batch_size = self.batch_size
+        max_len = self.max_len
+        paragraphs = self.paragraphs
+
+        n_features = len(voc)
+        
+        ### change this to use the mask value instead of 0
+        X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
+        Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+
+        current_batch_index = 0
+
+        while 1:
+            par = random.choice(paragraphs) # pick a paragraph
+            i = random.choice(range(0, len(par) - 1)) # pick an index in the paragraph
+
+            # create the next example
+            right_limit = i+1
+            left_limit = 0 if right_limit-max_len < 0 else right_limit-max_len
+            pad_length = 0 if right_limit-max_len >= 0 else max_len-right_limit
+            X_data = [-1] * pad_length + par[left_limit:right_limit]
+            
+            Y_data = par[right_limit]
+        
+            # add it to the batch
+            for j,ind_token in enumerate(X_data):
+                if ind_token == -1:
+                    X_batch[current_batch_index, j, :] = self.mask_value # mask the value for no existing index
+                else:
+                    X_batch[current_batch_index, j, ind_token] = 1
+            Y_batch[current_batch_index, Y_data] = 1
+
+            current_batch_index += 1
+            if current_batch_index == batch_size:
+                yield X_batch, Y_batch
+                current_batch_index = 0
+                X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
+                Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
 
 
 
+def sample_token(pred, temperature=0, prob_tresh = 0.5):
+    pred = pred[0]
 
+    if random.random() > prob_tresh:
+        pred = np.asarray(pred).astype('float64')
+        pred = np.log(pred) / temperature
+        exp_pred = np.exp(pred)
+        pred = exp_pred / np.sum(exp_pred)
+        #
+        probas = np.random.multinomial(1, pred, 1)
+        return np.argmax(probas)
+    else:
+        return np.argmax(pred)
+        #return np.random.choice(range(0,len(pred)), p=pred)
 
-def sample_token(pred, diversity):
-    n = int(len(pred[0])*diversity) + 1
-    return random.choice(np.argsort(pred[0])[-n:])
+    # if random.randint(0,100) < prob_tresh:
+    #     return np.random.choice(range(0,len(pred[0])), p=pred[0])
+    # else:
+    #     return np.argmax(pred[0])
 
-def next_token(model, ind_tokens, voc, max_len, diversity=0, pad_value=0):
+def next_token(model, ind_tokens, voc, max_len, prob_tresh = 0.5, temperature=0, circular=True, pad_value=1):
     # use the last max_len tokens or pad if less
     if len(ind_tokens) >= max_len:
         input_seq = ind_tokens[-max_len:]
-    else:
+    elif circular == False:
         input_seq = [pad_value for i in range(0,max_len-len(ind_tokens))]
         input_seq.extend(ind_tokens)
+    else:
+        input_seq = ind_tokens[-(max_len % len(ind_tokens)):]
+        for _ in range(0,int(max_len/len(ind_tokens))):
+            input_seq.extend(ind_tokens)
 
     n_features = len(voc)
     X = np.zeros((1, max_len, n_features), dtype = np.bool)
@@ -42,58 +176,136 @@ def next_token(model, ind_tokens, voc, max_len, diversity=0, pad_value=0):
         X[0, k, i] = 1
 
     pred = model.predict(X, verbose=0)
-    return sample_token(pred, diversity)
+    return sample_token(pred, temperature, prob_tresh=prob_tresh)
 
-def next_token_generator(model, ind_tokens, voc, max_len, min_diversity=0, max_diversity=0.05, pad_value=0, stop_tokens=[0]):
+def next_token_generator(model, ind_tokens, voc, max_len, prob_tresh=0.5, temperature=0):
     current_seq = ind_tokens
     while 1:
-        diversity = min_diversity
-        if current_seq[len(current_seq)-1] in stop_tokens:
-            diversity = max_diversity
-
-        n_t = next_token(model, current_seq, voc, max_len, diversity, pad_value=pad_value)
+        #to_print=[voc[ind] for ind in current_seq]
+        #print('CURRENT SEQ:',to_print)
+        n_t = next_token(model, current_seq, voc, max_len, prob_tresh=prob_tresh, temperature=temperature, circular=True)
         yield n_t
 
-        curren_seq = current_seq[:-2].append(n_t)
+        current_seq.append(n_t)
+        current_seq = current_seq[1:]
+
+
+def token_sequence_to_text(input_seq):
+    out = ''
+
+    for token in input_seq:
+        if token == '<pt>':
+            out = out[:-1] + '. '
+        elif token == '<ai>':
+            out += '¿'
+        elif token == '<ci>':
+            out = out[:-1] + '? '
+        elif token == '<nl>':
+            out += '\n'
+        elif token[-1] == ':':
+            out += token[:-1] + ' '
+        elif token[-1] == '+':
+            out += token[:-1]
+        else:
+            out += token
+
+    return(out)
+
+def text_to_sequence_tokens(text, voc, voc_ind):
+
+    punctuation = '¿?.\n'
+    map_punctuation = {'¿': '<ai>', '?': '<ci>', '.': '<pt>', '\n': '<nl>'}
+
+    letras = set('aáeéoóíúiuübcdfghjklmnñopqrstvwxyz')
+    acc_chars = set(punctuation).union(letras)
+
+    # minúsculas
+    text = text.lower()
+    # elimina puntuación y pon espacios donde se necesite
+    char_tokens = []
+    for c in text:
+        to_append = ''
+        if c in letras or c == ' ':
+            to_append = c
+        elif c in punctuation:
+            to_append = ' ' + map_punctuation[c] + ' '
+        char_tokens.append(to_append)
+    text = re.sub(' +',' ',''.join(char_tokens))
+
+    word_tokens = text.split(' ') 
+
+    final_tokens = []
+    # partelas en tokens
+
+    for word in word_tokens:
+        if word + ':' in voc:
+            final_tokens.append(word+':')
+        elif word in map_punctuation.values():
+            final_tokens.append(word)
+        else: #intenta silabar
+            try:
+                to_extend = []
+                sils = silabas(word).split('-')            
+                __temp = '+ '.join(sils)
+                __temp += ':'
+                for sil in __temp.split(' '):
+                    if sil in voc:
+                        to_extend.append(sil)
+                    else:
+                        __temp_2 = '+ '.join(list(sil[:-1]))
+                        __temp_2 += sil[-1]
+                        to_extend.extend(__temp_2.split(' '))
+                final_tokens.extend(to_extend)
+            except TypeError:
+                __temp = '+ '.join(list(word))
+                __temp += ':'
+                final_tokens.extend(__temp.split(' '))
+
+    return final_tokens, [voc_ind[token] for token in final_tokens]
+
+
+def generate_text(model,seed_text,length,voc,voc_ind,temperature=0,prob_tresh=0.5):
+
+    max_len = model.layers[0].input_shape[1]
+    multiplier = 10
+
+    if len(seed_text) > multiplier * max_len: # to lengthy text is splitted randomly
+        n = random.randint(0,len(seed_text) - multiplier * max_len)
+        seed_text = seed_text[n:n+multiplier*max_len]
+
+    _, initial_seq = text_to_sequence_tokens(seed_text, voc, voc_ind)
+
+
+    tokens = []
+
+    for token in initial_seq[-max_len:]:
+        tokens.append(voc[token])
+   
+    for i,token in enumerate(next_token_generator(model, initial_seq, voc, max_len, 
+        temperature=temperature, prob_tresh=prob_tresh)):
+
+        tokens.append(voc[token])
+        if i == length:
+            break
+
+    print(token_sequence_to_text(tokens))
+
+def plot_train_history(history_file, metric='loss', epochs=[0,40], ylim=[0,1]):
+    __d = open(history_file).read()
+    data = eval(__d)
+    plt.plot(data[metric])
+    plt.plot(data['val_'+metric])
+    plt.ylabel(metric)
+    plt.xlabel('epoch')
+    axes = plt.gca()
+    axes.set_xlim(epochs)
+    axes.set_ylim(ylim)
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.show()
 
 
 
-# lstm_model.load_weights('../models/lstm_model_30_512_0.5631_adam.h5')
 
-# from sys import stdout
 
-# init = random.randint(0,len(ind_tokens)-max_len)
-
-# print('init: ',init)
-
-# initial_seq = ind_tokens[init:init+max_len]
-# for token in initial_seq:
-#     if token == 0:
-#         stdout.write(' ')
-#     else:
-#         stdout.write(voc[token])
-
-# stdout.write('///')
-
-# max = 200
-# for i,token in enumerate(next_token_generator(lstm_model, initial_seq, voc, max_len, min_diversity=0, max_diversity=0.05)):
-#     if token == 0:
-#         stdout.write(' ')
-#     else:
-#         stdout.write(voc[token])
-#     if i == max:
-#         break
-
-# max = 200
-# for i,token in enumerate(next_token_generator(lstm_model, i_s, voc, max_len, min_diversity=0, max_diversity=0.05)):
-#     if token == 0:
-#         stdout.write(' ')
-#     else:
-#         stdout.write(voc[token])
-#     if i == max:
-#         break
 
     
-
-
-

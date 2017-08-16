@@ -1,22 +1,23 @@
 import re
 from separador_silabas import silabas
 from collections import Counter
+import numpy as np
 import random
 
 random.seed(57)
 
 #word_freq_percent = 0.02
 #sil_freq_percent = 0.2
-word_voc_size = 500
+word_voc_size = 600
 sil_voc_size = 300
 val_percentage = 10
 
 # raw data file
-filename = '../data/raw/biblia_ntv.txt'
-out_filename_pref = '../data/biblia_ntv_'
+filename = '../data/raw/horoscopo_raw.txt'
+out_filename_pref = '../data/horoscopo_{0}_{1}_'.format(word_voc_size,sil_voc_size)
 
-punctuation = '¿?.\n'
-map_punctuation = {'¿': '<ai>', '?': '<ci>', '.': '<pt>', '\n': '<nl>'}
+punctuation = '¿?.,\n'
+map_punctuation = {'¿': '<ai>', '?': '<ci>', '.': '<pt>', '\n': '<nl>', ',': '<cm>'}
 
 letras = set('aáeéoóíúiuübcdfghjklmnñopqrstvwxyz')
 acc_chars = set(punctuation).union(letras)
@@ -43,6 +44,7 @@ for word in word_tokens:
     word_cnt[word] += 1
 
 #word_most_freq = [word for word,_ in word_cnt.most_common()[:int(len(word_cnt)*word_freq_percent)]]
+word_voc_size = min(word_voc_size, len(word_cnt))
 word_most_freq = set([word for word,_ in word_cnt.most_common()[:word_voc_size]])
 #word_most_freq = set(word_cnt.most_common()[:word_voc_size])
 
@@ -58,6 +60,7 @@ for word in word_tokens:
         except TypeError:
             pass
 
+sil_voc_size = min(sil_voc_size, len(sil_cnt))
 sil_most_freq = [sil for sil,_ in sil_cnt.most_common()[:sil_voc_size] if sil not in word_most_freq]
 #sil_most_freq = set(sil_cnt.most_common()[:sil_voc_size])
 
@@ -91,6 +94,7 @@ for word in word_tokens:
 # computa el vocabulario
 voc_freq = Counter(final_tokens).most_common()
 
+
 _length = 1500
 _inicio = random.randint(0,len(final_tokens)-_length)
 print('SAMPLE:')
@@ -100,16 +104,23 @@ print('FINAL CORPUS SIZE:', len(final_tokens))
 print('FINAL VOC SIZE:', len(voc_freq))
 
 lines = ' '.join(final_tokens).split('<nl>')
+lines_sizes = [len(line.split(' '))+1 for line in lines if len(line.strip()) >= 4]
+
+print('LINE SIZES METRICS:', 'MAX =', np.max(lines_sizes), 'MIN =', np.min(lines_sizes), 
+    'AVG =', np.average(lines_sizes), 'STD =', np.std(lines_sizes))
 
 with open(out_filename_pref + 'voc.txt', 'w') as outfile:
+    # outfile.write('\n') # this is necessary if we use mask in the indexes (for example with an initial embedding layer)
     for token,_ in voc_freq:
         outfile.write(token)
         outfile.write('\n')
 
 with open(out_filename_pref + 'train.txt', 'w') as outfile_train, open(out_filename_pref + 'val.txt','w') as outfile_val:
     for line in lines:
+        if len(line.strip()) < 4: # too short sentences might only be noise
+            continue
         p = random.choice(range(0,100))
-        if p <= val_percentage:
+        if p < val_percentage:
             outfile_val.write(line.strip())
             outfile_val.write(' <nl>\n')
         else:

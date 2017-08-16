@@ -4,11 +4,11 @@ import random
 np.random.seed(59)
 
 from keras.models import Sequential
-from keras.layers import Embedding, Dense, LSTM, Dropout, GRU
+from keras.layers import Embedding, Dense, LSTM, Dropout, GRU, Masking
 from keras import metrics
 from keras.callbacks import ModelCheckpoint
 from keras.models import load_model
-from utils import generator, next_token, next_token_generator
+from utils import ParByParGenerator, ContinuousGenerator, next_token, next_token_generator
 import time
 
 #################
@@ -29,9 +29,15 @@ time_pref = time.strftime('%y%m%d.%H%M') + '_'
 #################
 ## input files
 
-train_text_file = '../data/biblia_ntv_train.sample.txt'
-val_text_file = '../data/biblia_ntv_val.sample.txt'
-voc_file = '../data/biblia_ntv_voc.txt'
+train_text_file = '../data/biblia_ntv_train.txt' #'../data/horoscopo_0600_0300_train.txt'
+val_text_file = '../data/biblia_ntv_val.txt' #'../data/horoscopo_0600_0300_val.txt'
+voc_file = '../data/biblia_ntv_voc.txt' #'../data/horoscopo_0600_0300_voc.txt'
+
+##### MASK VALUE EQUALS 0
+##### CONSIDER HAVING THE EMPTY STRING AS THE FIRST SYMBOL IN YOUR VOCABULARY TO MAKE THIS WORK, 
+##### THE SYMBOL AT INDEX 0 WILL ALWAYS BE SKIPPED!
+mask_value = 0
+nl_symbol = '<nl>'
 
 train_tokens = open(train_text_file).read().split()
 val_tokens = open(val_text_file).read().split()
@@ -59,12 +65,12 @@ lstm_units = 512
 dropout = 0.3
 rec_dropout = 0.3
 optimizer = 'adam'
-impl = 2 # BE CAREFULL!!! must be 2 for gpu
+impl = 2 # BE CAREFULL!!! must be 2 for GPU
 #####
 
 ##### set parameters of the training process
 batch_size = 256
-epochs = 40
+epochs = 50
 #####
 
 if retraining == True:
@@ -73,12 +79,12 @@ if retraining == True:
 
 else:
     lstm_model = Sequential()
-    lstm_model.add(LSTM(lstm_units, input_shape=(max_len, len(voc)), recurrent_dropout=rec_dropout, 
-        implementation=impl, return_sequences=True))
-    lstm_model.add(Dropout(dropout))
+    lstm_model.add(Masking(mask_value=mask_value, input_shape=(max_len, len(voc))))
     lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, implementation=impl, return_sequences=True))
-    lstm_model.add(Dropout(dropout/2))
-    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout/2, implementation=impl))
+    lstm_model.add(Dropout(dropout))
+    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, implementation=impl)) # , return_sequences=True))
+    # lstm_model.add(Dropout(dropout/4))
+    # lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout/4, implementation=impl))
     lstm_model.add(Dense(len(voc), activation='softmax'))
     lstm_model.compile(loss='categorical_crossentropy', optimizer=optimizer, 
         metrics=['top_k_categorical_accuracy'])
@@ -99,11 +105,22 @@ checkpoint = ModelCheckpoint(
     save_best_only=True ## save best
 )
 
+### create the generator objects
+#train_gen = ParByParGenerator(batch_size, ind_train_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = 2, mask_value = mask_value)
+#val_gen = ParByParGenerator(batch_size, ind_val_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = 2, mask_value = mask_value)
+train_gen = ContinuousGenerator(batch_size, ind_train_tokens, voc, max_len)
+val_gen = ContinuousGenerator(batch_size, ind_val_tokens, voc, max_len)
+
+
+
+print('steps per epoch training:', train_gen.steps_per_epoch)
+print('steps per epoch validation:', val_gen.steps_per_epoch)
+
 model_output = lstm_model.fit_generator(
-    generator(batch_size, ind_train_tokens, voc, max_len), 
-    (len(ind_train_tokens) - max_len)/batch_size + 1,
-    validation_data=generator(batch_size, ind_val_tokens, voc, max_len),
-    validation_steps=(len(ind_val_tokens) - max_len)/batch_size + 1,
+    train_gen.generator(), 
+    train_gen.steps_per_epoch,
+    validation_data=val_gen.generator(),
+    validation_steps=val_gen.steps_per_epoch,
     epochs=epochs, 
     callbacks=[checkpoint]
 )
@@ -118,8 +135,13 @@ lstm_model.save(final_model_file)
 outfile_history = out_directory_train_history + out_model_pref + time_pref + \
     '{0:03d}_{1:03d}_{2:.2f}_{3:.2f}_{4:03d}_{5}'.format(max_len,lstm_units,dropout,rec_dropout,epochs,optimizer) + '.txt'
 
+outfile_architecture = out_directory_train_history + out_model_pref + time_pref + 'arch.yaml'
+
+
 print('saving history:', outfile_history)
 with open(outfile_history,'w') as out: 
     out.write(str(model_output.history))
     out.write('\n')
 
+with open(outfile_architecture,'w') as out:
+    out.write(lstm_model.to_yaml())
