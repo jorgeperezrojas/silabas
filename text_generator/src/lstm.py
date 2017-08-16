@@ -111,8 +111,6 @@ checkpoint = ModelCheckpoint(
 train_gen = ContinuousGenerator(batch_size, ind_train_tokens, voc, max_len)
 val_gen = ContinuousGenerator(batch_size, ind_val_tokens, voc, max_len)
 
-
-
 print('steps per epoch training:', train_gen.steps_per_epoch)
 print('steps per epoch validation:', val_gen.steps_per_epoch)
 
