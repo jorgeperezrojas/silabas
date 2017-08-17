@@ -3,7 +3,7 @@ import numpy as np
 import random
 import re
 from separador_silabas import silabas
-import matplotlib.pyplot as plt 
+
 
 class ContinuousGenerator:
     """Class to wrap a generator to train lstms with text as a continous stream"""
@@ -28,7 +28,7 @@ class ContinuousGenerator:
         current_batch_index = 0
 
         while 1:
-            i = random.choice(range(0, len(ind_tokens) - max_len, batch_size))
+            i = random.randint(0, len(ind_tokens) - max_len - 1)
             for k, ind_token in enumerate(ind_tokens[i: i+max_len]): # iteration for every token
                 X_batch[current_batch_index, k, ind_token] = 1
             Y_batch[current_batch_index,ind_tokens[i+max_len]] = 1
@@ -290,22 +290,3 @@ def generate_text(model,seed_text,length,voc,voc_ind,temperature=0,prob_tresh=0.
 
     print(token_sequence_to_text(tokens))
 
-def plot_train_history(history_file, metric='loss', epochs=[0,40], ylim=[0,1]):
-    __d = open(history_file).read()
-    data = eval(__d)
-    plt.plot(data[metric])
-    plt.plot(data['val_'+metric])
-    plt.ylabel(metric)
-    plt.xlabel('epoch')
-    axes = plt.gca()
-    axes.set_xlim(epochs)
-    axes.set_ylim(ylim)
-    plt.legend(['train', 'test'], loc='upper left')
-    plt.show()
-
-
-
-
-
-
-    
