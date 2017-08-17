@@ -26,6 +26,7 @@ out_model_pref = 'lstm_model_'
 out_directory_train_history = '../train_history/'
 time_pref = time.strftime('%y%m%d.%H%M') + '_'
 
+
 #################
 ## input files
 
