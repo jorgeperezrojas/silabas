@@ -6,7 +6,8 @@ np.random.seed(59)
 from keras.models import Sequential
 from keras.layers import Embedding, Dense, LSTM, Dropout, GRU, Masking
 from keras import metrics
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras.regularizers import l1, l2
 from keras.models import load_model
 from utils import ParByParGenerator, ContinuousGenerator, next_token, next_token_generator
 import time
@@ -50,7 +51,7 @@ ind_train_tokens = [voc_ind[token] for token in train_tokens if token in voc]
 ind_val_tokens = [voc_ind[token] for token in val_tokens if token in voc]
 
 ### for testing pourposes you can use a small subset of the train or val data
-max_train_data = len(ind_train_tokens)
+max_train_data =  len(ind_train_tokens)
 max_val_data = len(ind_val_tokens)
 ind_train_tokens = ind_train_tokens[:max_train_data]
 ind_val_tokens = ind_val_tokens[:max_val_data]
@@ -61,17 +62,19 @@ print('validation data size:',len(ind_val_tokens))
 
 ##### set parameters of the model
 ## WATCHOUT: cannot be changed when retraining
+## all these are stored in the model file .yaml
 max_len = 100
 lstm_units = 512
 dropout = 0.3
 rec_dropout = 0.3
 optimizer = 'adam'
 impl = 2 # BE CAREFULL!!! must be 2 for GPU
+l2reg=0.01
 #####
 
 ##### set parameters of the training process
 batch_size = 256
-epochs = 50
+epochs = 40
 #####
 
 if retraining == True:
@@ -81,9 +84,13 @@ if retraining == True:
 else:
     lstm_model = Sequential()
     lstm_model.add(Masking(mask_value=mask_value, input_shape=(max_len, len(voc))))
-    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, implementation=impl, return_sequences=True))
+    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, 
+        kernel_regularizer=l2(l2reg),
+        implementation=impl, return_sequences=True))
     lstm_model.add(Dropout(dropout))
-    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, implementation=impl)) # , return_sequences=True))
+    lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, 
+        kernel_regularizer=l2(l2reg),
+        implementation=impl)) # , return_sequences=True))
     # lstm_model.add(Dropout(dropout/4))
     # lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout/4, implementation=impl))
     lstm_model.add(Dense(len(voc), activation='softmax'))
@@ -94,17 +101,20 @@ else:
 lstm_model.summary()
 
 
-outfile = out_directory_model + out_model_pref + time_pref + \
-    '{0:03d}_{1:03d}_{2:.2f}_{3:.2f}_{4}_'.format(max_len,lstm_units,dropout,rec_dropout,optimizer) + \
-    '{epoch:03d}_{loss:.2f}_{val_loss:.2f}_{val_top_k_categorical_accuracy:.2f}.h5'
+outfile = out_model_pref + time_pref + \
+    'bs{0:03d}_'.format(batch_size) + \
+    '{loss:.2f}_{val_loss:.2f}_{val_top_k_categorical_accuracy:.2f}_{epoch:03d}.h5'
 
 checkpoint = ModelCheckpoint(
-    outfile, 
+    out_directory_model + outfile, 
     # monitor='val_loss', 
     monitor='val_top_k_categorical_accuracy',
     verbose=1, 
     save_best_only=True ## save best
 )
+
+early_stopping = EarlyStopping(
+    monitor='val_top_k_categorical_accuracy', min_delta=0, patience=4, verbose=0, mode='auto')
 
 ### create the generator objects
 #train_gen = ParByParGenerator(batch_size, ind_train_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = 2, mask_value = mask_value)
@@ -121,18 +131,18 @@ model_output = lstm_model.fit_generator(
     validation_data=val_gen.generator(),
     validation_steps=val_gen.steps_per_epoch,
     epochs=epochs, 
-    callbacks=[checkpoint]
+    callbacks=[checkpoint, early_stopping]
 )
 
 # save also the last state (to continue training if needed)
 final_model_file = out_directory_model + 'final_' + out_model_pref + time_pref + \
-    '{0:03d}_{1:03d}_{2:.2f}_{3:.2f}_{4:03d}_{5}'.format(max_len,lstm_units,dropout,rec_dropout,epochs,optimizer) + '.h5'
+    'bs{0:03d}'.format(batch_size) + '.h5'
 print('saving last model:', final_model_file)
 lstm_model.save(final_model_file)
 
 # save history
 outfile_history = out_directory_train_history + out_model_pref + time_pref + \
-    '{0:03d}_{1:03d}_{2:.2f}_{3:.2f}_{4:03d}_{5}'.format(max_len,lstm_units,dropout,rec_dropout,epochs,optimizer) + '.txt'
+    'bs{0:03d}'.format(batch_size) + '.txt'
 
 outfile_architecture = out_directory_train_history + out_model_pref + time_pref + 'arch.yaml'
 
@@ -142,5 +152,6 @@ with open(outfile_history,'w') as out:
     out.write(str(model_output.history))
     out.write('\n')
 
+# TODO: save a file with all the parameter configurations! (yaml stores almost everything but train set plus bs y also needed for comparisons)
 with open(outfile_architecture,'w') as out:
     out.write(lstm_model.to_yaml())
