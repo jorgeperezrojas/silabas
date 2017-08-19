@@ -1,0 +1,9 @@
+training parameters
+
+train file: ../data/horoscopo_0600_0300_train.sample.txt
+validation file: ../data/horoscopo_0600_0300_val.sample.txt
+voc_file: ../data/horoscopo_0600_0300_voc.txt
+batch size: 128
+epochs: 20
+
+retraining model: ../models/final_lstm_model_170818.2150_.h5
