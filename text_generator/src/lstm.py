@@ -17,7 +17,7 @@ import time
 #################
 
 retraining = False
-previous_model_file = '../models/final_lstm_model_170815.0047_100_512_0.00_0.00_010_adam.h5'
+previous_model_file = '../models/final_lstm_model_170818.2150_.h5'
 
 #################
 ## output parameters
@@ -25,19 +25,20 @@ previous_model_file = '../models/final_lstm_model_170815.0047_100_512_0.00_0.00_
 out_directory_model = '../models/'
 out_model_pref = 'lstm_model_'
 out_directory_train_history = '../train_history/'
-time_pref = time.strftime('%y%m%d.%H%M') + '_'
+time_pref = time.strftime('%y%m%d.%H%M')
 
 
 #################
 ## input files
-train_text_file = '../data/horoscopo_0600_0300_train.txt' #'../data/horoscopo_0600_0300_train.txt'
-val_text_file = '../data/horoscopo_0600_0300_val.txt' #'../data/horoscopo_0600_0300_val.txt'
-voc_file = '../data/horoscopo_0600_0300_voc.txt' #'../data/horoscopo_0600_0300_voc.txt'
+train_text_file = '../data/horoscopo_1500_1000_train.txt' #'../data/horoscopo_0600_0300_train.txt'
+val_text_file = '../data/horoscopo_1500_1000_val.txt' #'../data/horoscopo_0600_0300_val.txt'
+voc_file = '../data/horoscopo_1500_1000_voc.txt' #'../data/horoscopo_0600_0300_voc.txt'
 
 ##### set parameters of the training process
 batch_size = 128
-epochs = 2
-patience = 4
+epochs = 60
+ptj = 4
+patience = 10
 #####
 
 ##### MASK VALUE EQUALS 0
@@ -56,8 +57,8 @@ ind_train_tokens = [voc_ind[token] for token in train_tokens if token in voc]
 ind_val_tokens = [voc_ind[token] for token in val_tokens if token in voc]
 
 ### for testing pourposes you can use a small subset of the train or val data
-max_train_data =  200 #len(ind_train_tokens)
-max_val_data = 200 #len(ind_val_tokens)
+max_train_data =  len(ind_train_tokens)
+max_val_data = len(ind_val_tokens)
 ind_train_tokens = ind_train_tokens[:max_train_data]
 ind_val_tokens = ind_val_tokens[:max_val_data]
 
@@ -68,7 +69,7 @@ print('validation data size:',len(ind_val_tokens))
 ##### set parameters of the model
 ## WATCHOUT: cannot be changed when retraining
 ## all these are stored in the model file .yaml
-max_len = 100
+max_len = 125
 lstm_units = 512
 dropout = 0.3
 rec_dropout = 0.3
@@ -114,8 +115,8 @@ early_stopping = EarlyStopping(
     monitor='val_top_k_categorical_accuracy', min_delta=0, patience=patience, verbose=0, mode='auto')
 
 ### create the generator objects
-train_gen = ParByParGenerator(batch_size, ind_train_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = 2, mask_value = mask_value)
-val_gen = ParByParGenerator(batch_size, ind_val_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = 2, mask_value = mask_value)
+train_gen = ParByParGenerator(batch_size, ind_train_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = ptj, mask_value = mask_value)
+val_gen = ParByParGenerator(batch_size, ind_val_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = ptj, mask_value = mask_value)
 #train_gen = ContinuousGenerator(batch_size, ind_train_tokens, voc, max_len)
 #val_gen = ContinuousGenerator(batch_size, ind_val_tokens, voc, max_len)
 
@@ -137,8 +138,8 @@ print('saving last model:', final_model_file)
 lstm_model.save(final_model_file)
 
 # save history
-outfile_history = out_directory_train_history + out_model_pref + time_pref + 'hist.txt'
-outfile_parameters = out_directory_train_history + out_model_pref + time_pref + 'pars.txt'
+outfile_history = out_directory_train_history + out_model_pref + time_pref + '_hist.txt'
+outfile_parameters = out_directory_train_history + out_model_pref + time_pref + '_pars.txt'
 
 print('saving history:', outfile_history)
 print('saving parameters:', outfile_parameters)
@@ -159,6 +160,8 @@ with open(outfile_parameters,'w') as out:
     out.write(str(batch_size))
     out.write('\nepochs: ')
     out.write(str(epochs))
+    out.write('\nptj: ')
+    out.write(str(ptj))
     out.write('\n\n')
     if retraining == True:
         out.write('retraining model: ')
