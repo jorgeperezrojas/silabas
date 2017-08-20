@@ -1,0 +1,11 @@
+training parameters
+
+train file: ../data/horoscopo_5000_0300_train.txt
+validation file: ../data/horoscopo_5000_0300_val.txt
+voc_file: ../data/horoscopo_5000_0300_voc.txt
+batch size: 128
+epochs: 20
+ptj: 2
+trainable embedding: True
+
+retraining model: ../models/final_lstm_model_170820.1302.h5
