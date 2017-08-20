@@ -83,7 +83,6 @@ lstm_units = 512
 dropout = 0.3
 rec_dropout = 0.3
 optimizer = 'adam'
-loss = 'sparse_categorical_crossentropy' # this is needed if we go from index to an embedding layer
 impl = 2 # BE CAREFULL!!! must be 2 for GPU
 #####
 
@@ -128,7 +127,7 @@ else:
     lstm_model.add(LSTM(lstm_units, recurrent_dropout=rec_dropout, 
         implementation=impl)) 
     lstm_model.add(Dense(len(voc), activation='softmax'))
-    lstm_model.compile(loss=loss, optimizer=optimizer, 
+    lstm_model.compile(loss='categorical_crossentropy', optimizer=optimizer, 
         metrics=['top_k_categorical_accuracy'])
     print('compiling...')
 
