@@ -3,7 +3,10 @@ import numpy as np
 import random
 import re
 from separador_silabas import silabas
-
+import sys
+import time
+np.random.seed(59)
+random.seed(59)
 
 class ContinuousGenerator:
     """Class to wrap a generator to train lstms with text as a continous stream"""
@@ -41,30 +44,16 @@ class ContinuousGenerator:
                 X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
                 Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
 
-
-            # for i in range(0, len(ind_tokens) - max_len, batch_size):
-
-            #     # consider the case of a possible small final batch_size
-            #     actual_batch_size = min(batch_size, len(ind_tokens) - max_len - i)
-
-            #     X_batch = np.zeros((actual_batch_size, max_len, n_features), dtype = np.bool)
-            #     Y_batch = np.zeros((actual_batch_size, n_features), dtype = np.bool)
-
-            #     for j in range(0, actual_batch_size): # iteration for every batch member
-            #         for k, ind_token in enumerate(ind_tokens[i+j: i+j+max_len]): # iteration for every token
-            #             X_batch[j, k, ind_token] = 1
-            #         Y_batch[j,ind_tokens[i+j+max_len]] = 1
-            #     yield X_batch, Y_batch
-
 class ParByParGenerator:
     """Class to wrap a generator to train lstms paragraph by paragraph"""
 
-    def __init__(self, batch_size, ind_tokens, voc, max_len, split_symbol_index, paragraphs_to_join = 1, mask_value = 0):
+    def __init__(self, batch_size, ind_tokens, voc, max_len, split_symbol_index, paragraphs_to_join = 1, mask_value = 0, mode='normal'):
         self.ind_tokens = ind_tokens
         self.voc = voc
         self.max_len = max_len
         self.batch_size = batch_size
         self.mask_value = mask_value
+        self.mode = mode
 
         # first split paragraphs (not adding the split symbol)
         self.paragraphs = []
@@ -99,41 +88,135 @@ class ParByParGenerator:
         batch_size = self.batch_size
         max_len = self.max_len
         paragraphs = self.paragraphs
+        mode = self.mode
 
         n_features = len(voc)
         
-        ### change this to use the mask value instead of 0
-        X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
-        Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+        if mode == 'normal':
+            X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
+            Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+            m_v = -1
+        elif mode == 'sparse':
+            print('sparse')
+            X_batch = []
+            Y_batch = []
+            m_v = 0
 
         current_batch_index = 0
 
         while 1:
             par = random.choice(paragraphs) # pick a paragraph
-            i = random.choice(range(0, len(par) - 1)) # pick an index in the paragraph
+            i = random.randint(0, len(par) - 2) # pick an index in the paragraph
 
             # create the next example
             right_limit = i+1
             left_limit = 0 if right_limit-max_len < 0 else right_limit-max_len
             pad_length = 0 if right_limit-max_len >= 0 else max_len-right_limit
-            X_data = [-1] * pad_length + par[left_limit:right_limit]
-            
+
+            X_data = [m_v] * pad_length + par[left_limit:right_limit]
             Y_data = par[right_limit]
-        
-            # add it to the batch
-            for j,ind_token in enumerate(X_data):
-                if ind_token == -1:
-                    X_batch[current_batch_index, j, :] = self.mask_value # mask the value for no existing index
-                else:
-                    X_batch[current_batch_index, j, ind_token] = 1
-            Y_batch[current_batch_index, Y_data] = 1
+
+            if mode == 'normal':
+                # add it to the batch
+                for j,ind_token in enumerate(X_data):
+                    if ind_token == m_v:
+                        X_batch[current_batch_index, j, :] = self.mask_value # mask the value for no existing index
+                    else:
+                        X_batch[current_batch_index, j, ind_token] = 1
+                Y_batch[current_batch_index, Y_data] = 1
+            elif mode == 'sparse':
+                X_batch.append(X_data)
+                Y_batch.append(Y_data)
 
             current_batch_index += 1
             if current_batch_index == batch_size:
-                yield X_batch, Y_batch
+                yield np.array(X_batch), np.array(Y_batch)
                 current_batch_index = 0
-                X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
-                Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+
+                if mode == 'normal':
+                    X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
+                    Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+                elif mode == 'sparse':
+                    X_batch = []
+                    Y_batch = []
+
+
+########
+class PredictorParByPar:
+    def __init__(self, model,voc,voc_ind,split_symbol_index,seed_text='en el amor',temperature=0.6,prob_tresh=0.5,mask_value = 0):
+        self.model = model
+        self.voc = voc
+        self.voc_ind = voc_ind
+        self.seed_text = seed_text
+        self.temperature = temperature
+        self.prob_tresh = prob_tresh
+        self.mask_value = mask_value
+        self.split_symbol_index = split_symbol_index
+
+    def generate_text(self,length=100, mode='batch'):
+
+        seed_text = self.seed_text
+
+        max_len = self.model.layers[0].input_shape[1]
+        _, initial_seq = text_to_sequence_tokens(seed_text, self.voc, self.voc_ind)
+
+        if len(initial_seq) >= max_len:
+            initial_seq = initial_seq[-max_len:]
+        else:
+            initial_seq = [-1] * (len(initial_seq) - max_len) + initial_seq
+
+        text_tokens = [self.voc[token] for token in initial_seq]
+        input_tokens = initial_seq
+        output_tokens = initial_seq
+
+        for i in range(0,length):
+            # first generate input tensor
+            n_features = len(self.voc)
+            X = np.zeros((1, max_len, n_features), dtype = np.bool)
+            for k, j in enumerate(input_tokens):
+                X[0, k, j] = 1
+
+            # predict next token
+            pred_token = sample_token(self.model.predict(X, verbose=0), self.temperature, self.prob_tresh)
+            output_tokens.append(pred_token)
+
+            if pred_token == self.split_symbol_index:
+                print('fin')
+                break
+
+            if mode == 'interactive':
+                sys.stdout.write(token_sequence_to_text([self.voc[pred_token]]))
+                sys.stdout.flush()
+                time.sleep(0.001)
+
+            input_tokens = input_tokens[1:] + [pred_token]
+
+        return output_tokens # , token_sequence_to_text(output_tokens)
+
+   
+        
+ 
+def next_token(model, ind_tokens, voc, max_len, prob_tresh = 0.5, temperature=0, circular=True, pad_value=1):
+    # use the last max_len tokens or pad if less
+    if len(ind_tokens) >= max_len:
+        input_seq = ind_tokens[-max_len:]
+    elif circular == False:
+        input_seq = [pad_value for i in range(0,max_len-len(ind_tokens))]
+        input_seq.extend(ind_tokens)
+    else:
+        input_seq = ind_tokens[-(max_len % len(ind_tokens)):]
+        for _ in range(0,int(max_len/len(ind_tokens))):
+            input_seq.extend(ind_tokens)
+
+    n_features = len(voc)
+    X = np.zeros((1, max_len, n_features), dtype = np.bool)
+
+    for k, i in enumerate(input_seq):
+        X[0, k, i] = 1
+
+    pred = model.predict(X, verbose=0)
+    return sample_token(pred, temperature, prob_tresh=prob_tresh)
+
 
 
 
@@ -157,26 +240,6 @@ def sample_token(pred, temperature=0, prob_tresh = 0.5):
     # else:
     #     return np.argmax(pred[0])
 
-def next_token(model, ind_tokens, voc, max_len, prob_tresh = 0.5, temperature=0, circular=True, pad_value=1):
-    # use the last max_len tokens or pad if less
-    if len(ind_tokens) >= max_len:
-        input_seq = ind_tokens[-max_len:]
-    elif circular == False:
-        input_seq = [pad_value for i in range(0,max_len-len(ind_tokens))]
-        input_seq.extend(ind_tokens)
-    else:
-        input_seq = ind_tokens[-(max_len % len(ind_tokens)):]
-        for _ in range(0,int(max_len/len(ind_tokens))):
-            input_seq.extend(ind_tokens)
-
-    n_features = len(voc)
-    X = np.zeros((1, max_len, n_features), dtype = np.bool)
-
-    for k, i in enumerate(input_seq):
-        X[0, k, i] = 1
-
-    pred = model.predict(X, verbose=0)
-    return sample_token(pred, temperature, prob_tresh=prob_tresh)
 
 def next_token_generator(model, ind_tokens, voc, max_len, prob_tresh=0.5, temperature=0):
     current_seq = ind_tokens
@@ -196,6 +259,8 @@ def token_sequence_to_text(input_seq):
     for token in input_seq:
         if token == '<pt>':
             out = out[:-1] + '. '
+        elif token == '<cm>':
+            out = out[:-1] + ', '
         elif token == '<ai>':
             out += '¿'
         elif token == '<ci>':
@@ -214,7 +279,7 @@ def token_sequence_to_text(input_seq):
 def text_to_sequence_tokens(text, voc, voc_ind):
 
     punctuation = '¿?.\n'
-    map_punctuation = {'¿': '<ai>', '?': '<ci>', '.': '<pt>', '\n': '<nl>'}
+    map_punctuation = {'¿': '<ai>', '?': '<ci>', '.': '<pt>', '\n': '<nl>', ',': '<cm>'}
 
     letras = set('aáeéoóíúiuübcdfghjklmnñopqrstvwxyz')
     acc_chars = set(punctuation).union(letras)
@@ -285,8 +350,10 @@ def generate_text(model,seed_text,length,voc,voc_ind,temperature=0,prob_tresh=0.
         temperature=temperature, prob_tresh=prob_tresh)):
 
         tokens.append(voc[token])
+        sys.stdout.write(token_sequence_to_text([voc[token]]))
+        sys.stdout.flush()
+        time.sleep(0.1)
         if i == length:
             break
 
-    print(token_sequence_to_text(tokens))
-
+    #print(token_sequence_to_text(tokens))
