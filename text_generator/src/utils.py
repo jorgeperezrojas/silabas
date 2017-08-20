@@ -97,9 +97,8 @@ class ParByParGenerator:
             Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
             m_v = -1
         elif mode == 'sparse':
-            print('sparse')
-            X_batch = []
-            Y_batch = []
+            X_batch = np.zeros((batch_size, max_len), dtype = np.bool)
+            Y_batch = np.zeros((batch_size, 1), dtype = np.bool)
             m_v = 0
 
         current_batch_index = 0
@@ -125,20 +124,23 @@ class ParByParGenerator:
                         X_batch[current_batch_index, j, ind_token] = 1
                 Y_batch[current_batch_index, Y_data] = 1
             elif mode == 'sparse':
-                X_batch.append(X_data)
-                Y_batch.append(Y_data)
+                # add it to the batch
+                for j,ind_token in enumerate(X_data):
+                    X_batch[current_batch_index, j] = ind_token
+                Y_batch[current_batch_index, 0] = Y_data
 
             current_batch_index += 1
             if current_batch_index == batch_size:
-                yield np.array(X_batch), np.array(Y_batch)
                 current_batch_index = 0
 
                 if mode == 'normal':
+                    yield X_batch, Y_batch
                     X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
                     Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
                 elif mode == 'sparse':
-                    X_batch = []
-                    Y_batch = []
+                    yield X_batch, Y_batch # !!!!
+                    X_batch = np.zeros((batch_size, max_len), dtype = np.bool)
+                    Y_batch = np.zeros((batch_size, 1), dtype = np.bool)
 
 
 ########
