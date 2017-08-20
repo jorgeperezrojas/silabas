@@ -43,9 +43,9 @@ dim = 300
 
 ##### set parameters of the training process
 batch_size = 128
-epochs = 2
+epochs = 60
 ptj = 2
-patience = 10
+patience = 5
 trainable = True
 #####
 
@@ -65,8 +65,8 @@ ind_train_tokens = [voc_ind[token] for token in train_tokens if token in voc]
 ind_val_tokens = [voc_ind[token] for token in val_tokens if token in voc]
 
 ### for testing pourposes you can use a small subset of the train or val data
-max_train_data = 500 # len(ind_train_tokens)
-max_val_data = 500 # len(ind_val_tokens)
+max_train_data = len(ind_train_tokens)
+max_val_data = len(ind_val_tokens)
 ind_train_tokens = ind_train_tokens[:max_train_data]
 ind_val_tokens = ind_val_tokens[:max_val_data]
 
@@ -199,6 +199,8 @@ with open(outfile_parameters,'w') as out:
     out.write(str(epochs))
     out.write('\nptj: ')
     out.write(str(ptj))
+    out.write('\ntrainable embedding: ')
+    out.write(str(trainable))
     out.write('\n\n')
     if retraining == True:
         out.write('retraining model: ')
