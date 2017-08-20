@@ -148,7 +148,7 @@ class ParByParGenerator:
 
 ########
 class PredictorParByPar:
-    def __init__(self, model,voc,voc_ind,split_symbol_index,seed_text='en el amor',temperature=0.6,prob_tresh=0.5,mask_value = 0):
+    def __init__(self, model,voc,voc_ind,split_symbol_index,seed_text='en el amor',temperature=0.6,prob_tresh=0.5,mask_value = 0,input_mode='normal'):
         self.model = model
         self.voc = voc
         self.voc_ind = voc_ind
@@ -157,6 +157,7 @@ class PredictorParByPar:
         self.prob_tresh = prob_tresh
         self.mask_value = mask_value
         self.split_symbol_index = split_symbol_index
+        self.input_mode = input_mode
 
     def generate_text(self,length=100, mode='batch'):
 
@@ -168,7 +169,7 @@ class PredictorParByPar:
         if len(initial_seq) >= max_len:
             initial_seq = initial_seq[-max_len:]
         else:
-            initial_seq = [-1] * (len(initial_seq) - max_len) + initial_seq
+            initial_seq = [0] * (len(initial_seq) - max_len) + initial_seq
 
         text_tokens = [self.voc[token] for token in initial_seq]
         input_tokens = initial_seq
@@ -177,9 +178,13 @@ class PredictorParByPar:
         for i in range(0,length):
             # first generate input tensor
             n_features = len(self.voc)
-            X = np.zeros((1, max_len, n_features), dtype = np.bool)
-            for k, j in enumerate(input_tokens):
-                X[0, k, j] = 1
+
+            if self.input_mode == 'normal':
+                X = np.zeros((1, max_len, n_features), dtype = np.bool)
+                for k, j in enumerate(input_tokens):
+                    X[0, k, j] = 1
+            elif self.input_mode == 'sparse':
+                X = np.array([input_tokens])
 
             # predict next token
             pred_token = sample_token(self.model.predict(X, verbose=0), self.temperature, self.prob_tresh)
