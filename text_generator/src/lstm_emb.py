@@ -54,10 +54,11 @@ trainable = True
 ##### THE SYMBOL AT INDEX 0 WILL ALWAYS BE SKIPPED!
 mask_value = 0
 nl_symbol = '<nl>'
+voc = [''] # first element is a place holder for the mask value
 
 train_tokens = open(train_text_file).read().split()
 val_tokens = open(val_text_file).read().split()
-voc = open(voc_file).read().split()
+voc.extend(open(voc_file).read().split())
 voc_ind = dict((s,i) for i,s in enumerate(voc))
 
 # generate a list of indices from corpus considering only tokens in the vocabulary
@@ -101,9 +102,9 @@ for word in voc:
     if word_to_search in ft_model.vocab: 
         embedding_weights[index,:] = ft_model[word_to_search]
     else: # if not in precomputed vocabulary then use a random initialization
-        embedding_weights[index,:] = np.random.uniform(low=-00.5, high=0.05, size=(dim,))
+        embedding_weights[index,:] = np.random.uniform(low=-0.05, high=0.05, size=(dim,))
         not_in_we.append(word_to_search)
-print('tokens with no embessing:',len(not_in_we))
+print('tokens with no embedding:',len(not_in_we))
 print(not_in_we)
 ##################################
 ## finished with the embedding matrix
