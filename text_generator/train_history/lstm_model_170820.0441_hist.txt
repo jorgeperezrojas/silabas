@@ -1,0 +1,1 @@
+{'val_loss': [7.0685086250305176], 'val_top_k_categorical_accuracy': [0.1484375], 'loss': [7.7397348880767822], 'top_k_categorical_accuracy': [0.11979166666666667]}
