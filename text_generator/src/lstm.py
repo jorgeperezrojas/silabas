@@ -30,15 +30,16 @@ time_pref = time.strftime('%y%m%d.%H%M')
 
 #################
 ## input files
-train_text_file = '../data/horoscopo_1500_1000_train.txt' #'../data/horoscopo_0600_0300_train.txt'
-val_text_file = '../data/horoscopo_1500_1000_val.txt' #'../data/horoscopo_0600_0300_val.txt'
-voc_file = '../data/horoscopo_1500_1000_voc.txt' #'../data/horoscopo_0600_0300_voc.txt'
+train_text_file = '../data/horoscopo_hoy_8000_2000_train.txt' #'../data/horoscopo_0600_0300_train.txt'
+val_text_file = '../data/horoscopo_hoy_8000_2000_val.txt' #'../data/horoscopo_0600_0300_val.txt'
+voc_file = '../data/horoscopo_hoy_8000_2000_voc.txt' #'../data/horoscopo_0600_0300_voc.txt'
 
 ##### set parameters of the training process
 batch_size = 128
-epochs = 1
-ptj = 4
-patience = 10
+epochs = 10
+iterations = 4
+ptj = 2
+patience = 100
 #####
 
 ##### MASK VALUE EQUALS 0
@@ -57,8 +58,8 @@ ind_train_tokens = [voc_ind[token] for token in train_tokens if token in voc]
 ind_val_tokens = [voc_ind[token] for token in val_tokens if token in voc]
 
 ### for testing pourposes you can use a small subset of the train or val data
-max_train_data =  400# len(ind_train_tokens)
-max_val_data = 400#len(ind_val_tokens)
+max_train_data = len(ind_train_tokens)
+max_val_data = len(ind_val_tokens)
 ind_train_tokens = ind_train_tokens[:max_train_data]
 ind_val_tokens = ind_val_tokens[:max_val_data]
 
@@ -69,7 +70,7 @@ print('validation data size:',len(ind_val_tokens))
 ##### set parameters of the model
 ## WATCHOUT: cannot be changed when retraining
 ## all these are stored in the model file .yaml
-max_len = 125
+max_len = 80
 lstm_units = 512
 dropout = 0.3
 rec_dropout = 0.3
@@ -98,22 +99,6 @@ else:
 
 lstm_model.summary()
 
-outfile = out_model_pref + time_pref + '.h5'
-#outfile = out_model_pref + time_pref + \
-#    'bs{0:03d}_'.format(batch_size) + \
-#    '{loss:.2f}_{val_loss:.2f}_{val_top_k_categorical_accuracy:.2f}_{epoch:03d}.h5'
-
-checkpoint = ModelCheckpoint(
-    out_directory_model + outfile, 
-    # monitor='val_loss', 
-    monitor='val_top_k_categorical_accuracy',
-    verbose=1, 
-    save_best_only=True ## save best
-)
-
-early_stopping = EarlyStopping(
-    monitor='val_top_k_categorical_accuracy', min_delta=0, patience=patience, verbose=0, mode='auto')
-
 ### create the generator objects
 train_gen = ParByParGenerator(batch_size, ind_train_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = ptj, mask_value = mask_value)
 val_gen = ParByParGenerator(batch_size, ind_val_tokens, voc, max_len, voc_ind[nl_symbol], paragraphs_to_join = ptj, mask_value = mask_value)
@@ -123,50 +108,48 @@ val_gen = ParByParGenerator(batch_size, ind_val_tokens, voc, max_len, voc_ind[nl
 print('steps per epoch training:', train_gen.steps_per_epoch)
 print('steps per epoch validation:', val_gen.steps_per_epoch)
 
-model_output = lstm_model.fit_generator(
-    train_gen.generator(), 
-    train_gen.steps_per_epoch,
-    validation_data=val_gen.generator(),
-    validation_steps=val_gen.steps_per_epoch,
-    epochs=epochs, 
-    callbacks=[checkpoint, early_stopping]
-)
 
-# save also the last state (to continue training if needed)
-final_model_file = out_directory_model + 'final_' + out_model_pref + time_pref + '.h5'
-print('saving last model:', final_model_file)
-lstm_model.save(final_model_file)
+for i in range(0,iterations):
+    print('beginning iteration ' + str(i))
 
-# save history
-outfile_history = out_directory_train_history + out_model_pref + time_pref + '_hist.txt'
-outfile_parameters = out_directory_train_history + out_model_pref + time_pref + '_pars.txt'
+    outfile = out_model_pref + time_pref + '.h5'
 
-print('saving history:', outfile_history)
-print('saving parameters:', outfile_parameters)
-with open(outfile_history,'w') as out: 
-    out.write(str(model_output.history))
-    out.write('\n')
+    checkpoint = ModelCheckpoint(
+        out_directory_model + outfile, 
+        # monitor='val_loss', 
+        monitor='val_top_k_categorical_accuracy',
+        verbose=1, 
+        save_best_only=True ## save best
+    )
 
-# save a file with all the parameter configurations! (yaml stores almost everything but train set plus bs y also needed for comparisons)
-with open(outfile_parameters,'w') as out:
-    out.write('training parameters\n\n')
-    out.write('train file: ')
-    out.write(train_text_file)
-    out.write('\nvalidation file: ')
-    out.write(val_text_file)
-    out.write('\nvoc_file: ')
-    out.write(voc_file)
-    out.write('\nbatch size: ')
-    out.write(str(batch_size))
-    out.write('\nepochs: ')
-    out.write(str(epochs))
-    out.write('\nptj: ')
-    out.write(str(ptj))
-    out.write('\n\n')
-    if retraining == True:
-        out.write('retraining model: ')
-        out.write(previous_model_file)
-    else:
-        out.write('model specs: \n\n')
-        out.write(lstm_model.to_yaml())
+    early_stopping = EarlyStopping(
+        monitor='val_top_k_categorical_accuracy', min_delta=0, patience=patience, verbose=0, mode='auto')
+
+
+    model_output = lstm_model.fit_generator(
+        train_gen.generator(), 
+        train_gen.steps_per_epoch,
+        validation_data=val_gen.generator(),
+        validation_steps=val_gen.steps_per_epoch,
+        epochs=epochs, 
+        callbacks=[checkpoint, early_stopping]
+    )
+
+    time_pref = time_pref[:-1] + str(i)
+
+    # save also the last state (to continue training if needed)
+    final_model_file = out_directory_model + 'final_' + out_model_pref + time_pref + '.h5'
+    print('saving last model:', final_model_file)
+    lstm_model.save(final_model_file)
+
+    # save history
+    outfile_history = out_directory_train_history + out_model_pref + time_pref + '_hist.txt'
+    outfile_parameters = out_directory_train_history + out_model_pref + time_pref + '_pars.txt'
+
+    print('saving history:', outfile_history)
+    print('saving parameters:', outfile_parameters)
+    with open(outfile_history,'w') as out: 
+        out.write(str(model_output.history))
+        out.write('\n')
+    
 

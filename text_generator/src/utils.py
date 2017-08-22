@@ -70,13 +70,15 @@ class ParByParGenerator:
             else:
                 current_par.append(split_symbol_index)
                 self.paragraphs.append(current_par)
-                total_number_of_examples += (len(current_par) - 1) if len(current_par) < max_len else (len(current_par) - max_len - 1)
+                total_number_of_examples += 0 if len(current_par) < int(max_len/2) else (
+                    (len(current_par) - 1) - int(max_len/2) if len(current_par) > max_len else (len(current_par) - int(max_len/2) - 1))
                 counter = 1
                 current_par = []
         # add a possible final paragraph
         if current_par != []:
             self.paragraphs.append(current_par)
-            total_number_of_examples += (len(current_par) - 1) if len(current_par) < max_len else (len(current_par) - max_len - 1)
+            total_number_of_examples += 0 if len(current_par) < int(max_len/2) else (
+                    (len(current_par) - 1) - int(max_len/2) if len(current_par) > max_len else (len(current_par) - int(max_len/2) - 1))
 
         # update steps per epoch
         self.steps_per_epoch = int(total_number_of_examples / batch_size) + 1
@@ -106,7 +108,11 @@ class ParByParGenerator:
 
         while 1:
             par = random.choice(paragraphs) # pick a paragraph
-            i = random.randint(0, len(par) - 2) # pick an index in the paragraph
+            # limits
+            if int(max_len/2) > len(par) - 2:
+                continue
+
+            i = random.randint(int(max_len/2), len(par) - 2) # pick an index in the paragraph between max_len/2 and len(par) - 2
 
             # create the next example
             right_limit = i+1
@@ -148,7 +154,10 @@ class ParByParGenerator:
 
 ########
 class PredictorParByPar:
-    def __init__(self, model,voc,voc_ind,split_symbol_index,seed_text='en el amor',temperature=0.6,prob_tresh=0.5,mask_value = 0,input_mode='normal'):
+    def __init__(self, model,voc,voc_ind,split_symbol_index,
+        seed_text='es muy bueno que de vez en cuando nos preocupemos de vernos bien para mantener la atracción de nuestra pareja . ',
+        temperature=0.5,prob_tresh=0.2,mask_value = 0,input_mode='normal'):
+
         self.model = model
         self.voc = voc
         self.voc_ind = voc_ind
@@ -184,7 +193,9 @@ class PredictorParByPar:
                 for k, j in enumerate(input_tokens):
                     X[0, k, j] = 1
             elif self.input_mode == 'sparse':
-                X = np.array([input_tokens])
+                X = np.zeros((1, max_len), dtype = np.int32)
+                for k,j in enumerate(input_tokens):
+                    X[0, k] = j
 
             # predict next token
             pred_token = sample_token(self.model.predict(X, verbose=0), self.temperature, self.prob_tresh)
@@ -192,6 +203,74 @@ class PredictorParByPar:
 
             if pred_token == self.split_symbol_index:
                 print('fin')
+                break
+
+            if mode == 'interactive':
+                sys.stdout.write(token_sequence_to_text([self.voc[pred_token]]))
+                sys.stdout.flush()
+                time.sleep(0.001)
+
+            input_tokens = input_tokens[1:] + [pred_token]
+
+        return output_tokens # , token_sequence_to_text(output_tokens)
+
+
+########
+class PredictorParByParReal:
+    def __init__(self, model,voc,voc_ind,split_symbol_index,
+        seed_text='su estúpido orgullo hará que usted se quede absolutamente solo . si no cambia , difícilmente logrará una mejora en su calidad de vida . ',
+        temperature=0.5,prob_tresh=0.1,mask_value = 0,input_mode='normal'):
+
+        self.model = model
+        self.voc = voc
+        self.voc_ind = voc_ind
+        self.seed_text = seed_text
+        self.temperature = temperature
+        self.prob_tresh = prob_tresh
+        self.mask_value = mask_value
+        self.split_symbol_index = split_symbol_index
+        self.input_mode = input_mode
+
+    def generate_text(self,length=100, mode='batch', multiplier = 2):
+
+        seed_text = self.seed_text
+
+        max_len = self.model.layers[0].input_shape[1]
+        _, initial_seq = text_to_sequence_tokens(seed_text, self.voc, self.voc_ind)
+
+        if len(initial_seq) >= max_len:
+            initial_seq = initial_seq[-max_len:]
+        else:
+            initial_seq = [0] * (len(initial_seq) - max_len) + initial_seq
+
+        text_tokens = [self.voc[token] for token in initial_seq]
+        input_tokens = initial_seq
+        output_tokens = initial_seq
+
+        for i in range(0,length):
+            # first generate input tensor
+            n_features = len(self.voc)
+
+            if self.input_mode == 'normal':
+                X = np.zeros((1, max_len, n_features), dtype = np.bool)
+                for k, j in enumerate(input_tokens):
+                    X[0, k, j] = 1
+            elif self.input_mode == 'sparse':
+                X = np.zeros((1, max_len), dtype = np.int32)
+                for k,j in enumerate(input_tokens):
+                    X[0, k] = j
+
+            # predict next token
+            if self.voc[input_tokens[-1]] == '<pt>':
+                temper = self.temperature * multiplier
+            else:
+                temper = self.temperature
+
+            pred_token = sample_token(self.model.predict(X, verbose=0), temper, self.prob_tresh)
+            output_tokens.append(pred_token)
+
+            if pred_token == self.split_symbol_index:
+                print('FIN')
                 break
 
             if mode == 'interactive':
@@ -288,7 +367,7 @@ def token_sequence_to_text(input_seq):
 
 def text_to_sequence_tokens(text, voc, voc_ind):
 
-    punctuation = '¿?.\n'
+    punctuation = '¿?.,\n'
     map_punctuation = {'¿': '<ai>', '?': '<ci>', '.': '<pt>', '\n': '<nl>', ',': '<cm>'}
 
     letras = set('aáeéoóíúiuübcdfghjklmnñopqrstvwxyz')
