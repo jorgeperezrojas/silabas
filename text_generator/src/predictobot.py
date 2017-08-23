@@ -9,7 +9,7 @@ from keras.models import load_model
 import utils
 
 
-TOKEN = "440239364:AAHbVGLlYujWMZ6rnCrTcvwiIGtFUAALgiA"
+TOKEN = open('../data/data_bot').read() 
 URL = "https://api.telegram.org/bot{}/".format(TOKEN)
 
 
@@ -69,8 +69,14 @@ def handle_updates(updates,predictor,voc):
             text = update["message"]["text"]
             chat = update["message"]["chat"]["id"]
             msg = update["message"]["message_id"]
-            to = update["message"]["from"]["first_name"]
-            user = update["message"]["from"]["username"]
+            if 'first_name' in update["message"]["from"]:
+                to = update["message"]["from"]["first_name"]
+            else:
+                to = ''
+            if 'username' in update["message"]["from"]:
+                user = update["message"]["from"]["username"]
+            else:
+                user = ''
             s = ''
 
             in_msgs = text.split()
@@ -96,7 +102,7 @@ def handle_updates(updates,predictor,voc):
                     params['new_'+mult_par] = True
 
 
-                print('debería responder')
+                #print('debería responder')
                 if first == True:
                     first = False
                     set_action(chat, 'typing')
@@ -112,11 +118,20 @@ def handle_updates(updates,predictor,voc):
                 else:
                     message += utils.token_sequence_to_text([voc[i] for i in s])
                     send_message_reply(message, chat, msg)
-
+                
+                with open('../log/yolianda_log','a') as outfile:
+                    outfile.write(chat)
+                    outfile.write(msg)
+                    outfile.write(user)
+                    outfile.write(message)
                 print(chat,msg,user,message)
             else:
-                print('no debería responder')
+                #print('no debería responder')
+                pass
         except Exception as e:
+            with open('../log/yolianda_log','a') as outfile:
+                outfile.write(update)
+                outfile.write(e)
             print(update)
             print(e)
             pass
