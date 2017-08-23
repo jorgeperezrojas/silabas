@@ -9,7 +9,7 @@ from keras.models import load_model
 import utils
 
 
-TOKEN = open('../data/data_bot').read() 
+TOKEN = open('../data/data_bot').read().strip(' \n') 
 URL = "https://api.telegram.org/bot{}/".format(TOKEN)
 
 
@@ -81,7 +81,9 @@ def handle_updates(updates,predictor,voc):
 
             in_msgs = text.split()
 
-            if '@yolianda' in in_msgs or \
+            if  'yolanda' in in_msgs or \
+                'yolianda' in in_msgs or \
+                '@yolianda' in in_msgs or \
                 '@yoliandabot' in in_msgs or \
                 'predicción' in in_msgs or \
                 'destino' in in_msgs:
@@ -130,14 +132,16 @@ def handle_updates(updates,predictor,voc):
                 pass
         except Exception as e:
             with open('../log/yolianda_log','a') as outfile:
-                outfile.write(update)
-                outfile.write(e)
+                outfile.write(str(update))
+                outfile.write(str(e))
             print(update)
             print(e)
             pass
     
 
 def main():
+    print(TOKEN)
+    print(URL)
 
     voc_file = '../data/horoscopo_5000_0300_voc.txt'
     voc = open(voc_file).read().split()
