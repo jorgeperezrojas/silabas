@@ -8,6 +8,8 @@ import time
 np.random.seed(59)
 random.seed(59)
 
+from datetime import datetime
+
 class ContinuousGenerator:
     """Class to wrap a generator to train lstms with text as a continous stream"""
 
@@ -215,70 +217,131 @@ class PredictorParByPar:
         return output_tokens # , token_sequence_to_text(output_tokens)
 
 
-########
+################################################################
+################################################################
+################################################################
+################################################################
+################################################################
+
 class PredictorParByParReal:
     def __init__(self, model,voc,voc_ind,split_symbol_index,
+        use_random_seed = True,
+        input_text = '../data/raw/horoscopo_raw.txt',
         seed_text='su estúpido orgullo hará que usted se quede absolutamente solo . si no cambia , difícilmente logrará una mejora en su calidad de vida . ',
-        temperature=0.5,prob_tresh=0.1,mask_value = 0,input_mode='normal'):
+        max_temperature=1,min_temperature=0.3,
+        min_prob_tresh=0.1,
+        max_prob_tresh=0.6,
+        max_sentences=4,
+        mask_value = 0,input_mode='normal'):
+
+        np.random.seed()
+        random.seed(datetime.now())
 
         self.model = model
         self.voc = voc
         self.voc_ind = voc_ind
         self.seed_text = seed_text
-        self.temperature = temperature
-        self.prob_tresh = prob_tresh
+        self.max_temperature = max_temperature
+        self.min_temperature = min_temperature
+        self.min_prob_tresh = min_prob_tresh
+        self.max_prob_tresh = max_prob_tresh
         self.mask_value = mask_value
         self.split_symbol_index = split_symbol_index
         self.input_mode = input_mode
+        self.max_sentences = max_sentences
+        self.last_used_seed = seed_text
+        self.use_random_seed = use_random_seed
+
+        if use_random_seed == True:
+            self.text_lines = open(input_text).read().split('\n')
 
     def generate_text(self,length=100, mode='batch', multiplier = 2):
 
-        seed_text = self.seed_text
+        voc_ind = self.voc_ind
+
+        if self.use_random_seed == True:
+            __t = self.text_lines[random.randint(0,len(self.text_lines))]
+            seed_text = '.'.join(__t.split('.')[0:2]) + '.'
+        else:
+            seed_text = self.seed_text
 
         max_len = self.model.layers[0].input_shape[1]
-        _, initial_seq = text_to_sequence_tokens(seed_text, self.voc, self.voc_ind)
+        seed_tokens, initial_seq = text_to_sequence_tokens(seed_text, self.voc, self.voc_ind)
+
+        #print(seed_text)
 
         if len(initial_seq) >= max_len:
-            initial_seq = initial_seq[-max_len:]
+            initial_seq = initial_seq[0:max_len]
         else:
-            initial_seq = [0] * (len(initial_seq) - max_len) + initial_seq
+            initial_seq = [self.mask_value] * (len(initial_seq) - max_len) + initial_seq
 
         text_tokens = [self.voc[token] for token in initial_seq]
         input_tokens = initial_seq
-        output_tokens = initial_seq
+        output_tokens = []
 
-        for i in range(0,length):
-            # first generate input tensor
-            n_features = len(self.voc)
+        temper = self.max_temperature
+        prob_tresh = self.min_prob_tresh
 
-            if self.input_mode == 'normal':
-                X = np.zeros((1, max_len, n_features), dtype = np.bool)
-                for k, j in enumerate(input_tokens):
-                    X[0, k, j] = 1
-            elif self.input_mode == 'sparse':
-                X = np.zeros((1, max_len), dtype = np.int32)
-                for k,j in enumerate(input_tokens):
-                    X[0, k] = j
+        n_features = len(self.voc)
+        pred_token = -100
+        ### generate until the first point
+        while pred_token != voc_ind['<pt>']:
+            X = np.zeros((1, max_len, n_features), dtype = np.bool)
+            for k, j in enumerate(input_tokens):
+                X[0, k, j] = 1
+            pred_token = sample_token(self.model.predict(X, verbose=0), temper, prob_tresh)
+            input_tokens = input_tokens[1:] + [pred_token]
 
-            # predict next token
-            if self.voc[input_tokens[-1]] == '<pt>':
-                temper = self.temperature * multiplier
-            else:
-                temper = self.temperature
+            # if mode == 'interactive':
+            #     sys.stdout.write('(t:' + str(temper)[:4] + ')')
+            #     sys.stdout.write(token_sequence_to_text([self.voc[pred_token]]))
+            #     sys.stdout.flush()
 
-            pred_token = sample_token(self.model.predict(X, verbose=0), temper, self.prob_tresh)
-            output_tokens.append(pred_token)
+        #print('//////')
 
-            if pred_token == self.split_symbol_index:
+        temper = self.max_temperature
+        mult = 0.6
+
+        # we can generate text now:
+        count_sentences = 0
+        while count_sentences < self.max_sentences:
+
+            X = np.zeros((1, max_len, n_features), dtype = np.bool)
+            for k, j in enumerate(input_tokens):
+                X[0, k, j] = 1
+
+            pred_token = sample_token(self.model.predict(X, verbose=0), temper, prob_tresh)
+
+
+            if pred_token == self.split_symbol_index and count_sentences <= self.max_sentences / 2:
+                count_sentences += 1
+                temper = self.max_temperature
+                input_tokens = input_tokens # does not change the set of input tokens
+
+            elif pred_token == self.split_symbol_index:
                 print('FIN')
                 break
 
-            if mode == 'interactive':
-                sys.stdout.write(token_sequence_to_text([self.voc[pred_token]]))
-                sys.stdout.flush()
-                time.sleep(0.001)
+            else:
+                if pred_token == voc_ind['<pt>']:
+                    count_sentences += 1
+                    temper = self.max_temperature
 
-            input_tokens = input_tokens[1:] + [pred_token]
+                elif pred_token == voc_ind['<cm>']:
+                    temper = self.min_temperature
+
+                else:
+                    temper = max(temper * mult, self.min_temperature)
+                
+                output_tokens.append(pred_token)
+                input_tokens = input_tokens[1:] + [pred_token]
+
+                if mode == 'interactive':
+                    #sys.stdout.write('(t:' + str(temper)[:4] + ')')
+                    sys.stdout.write(token_sequence_to_text([self.voc[pred_token]]))
+                    sys.stdout.flush()
+            
+
 
         return output_tokens # , token_sequence_to_text(output_tokens)
 
@@ -446,3 +509,4 @@ def generate_text(model,seed_text,length,voc,voc_ind,temperature=0,prob_tresh=0.
             break
 
     #print(token_sequence_to_text(tokens))
+
