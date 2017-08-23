@@ -408,9 +408,11 @@ def next_token_generator(model, ind_tokens, voc, max_len, prob_tresh=0.5, temper
 
 def token_sequence_to_text(input_seq):
     out = ''
+    upper = True
 
     for token in input_seq:
         if token == '<pt>':
+            upper = True
             out = out[:-1] + '. '
         elif token == '<cm>':
             out = out[:-1] + ', '
@@ -418,14 +420,24 @@ def token_sequence_to_text(input_seq):
             out += '¿'
         elif token == '<ci>':
             out = out[:-1] + '? '
+            upper = True
         elif token == '<nl>':
             out += '\n'
-        elif token[-1] == ':':
-            out += token[:-1] + ' '
-        elif token[-1] == '+':
-            out += token[:-1]
+            upper = True
         else:
-            out += token
+            to_add = ''
+            if upper == True:
+                token = token[0].upper() + token[1:]
+                upper = False
+
+            if token[-1] == ':':
+                to_add = token[:-1] + ' '
+            elif token[-1] == '+':
+                to_add = token[:-1] 
+            else:
+                to_add = token
+            
+            out += to_add
 
     return(out)
 
