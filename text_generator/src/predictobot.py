@@ -9,7 +9,7 @@ from keras.models import load_model
 import utils
 
 
-TOKEN = "391514614:AAHiDm2z5kY-7U4PTxz5wn4R6vE9KJGI2yY"
+TOKEN = "440239364:AAHbVGLlYujWMZ6rnCrTcvwiIGtFUAALgiA"
 URL = "https://api.telegram.org/bot{}/".format(TOKEN)
 
 
@@ -52,20 +52,73 @@ def send_message(text, chat_id):
     url = URL + "sendMessage?text={}&chat_id={}".format(text, chat_id)
     get_url(url)
 
+def send_message_reply(text, chat_id, msg_id):
+    text = urllib.parse.quote_plus(text)
+    url = URL + "sendMessage?text={}&chat_id={}&reply_to_message_id={}".format(text, chat_id,msg_id)
+    get_url(url) 
+
+def set_action(chat_id, action):
+    url = URL + "sendChatAction?chat_id={}&action={}".format(chat_id, action)
+    get_url(url)
+
+
 def handle_updates(updates,predictor,voc):
     first = True
     for update in updates["result"]:
         try:
             text = update["message"]["text"]
             chat = update["message"]["chat"]["id"]
+            msg = update["message"]["message_id"]
+            to = update["message"]["from"]["first_name"]
+            user = update["message"]["from"]["username"]
             s = ''
-            if text == "/horoscopo":
-                if first:
+
+            in_msgs = text.split()
+
+            if '@yolianda' in in_msgs or \
+                '@yoliandabot' in in_msgs or \
+                'predicción' in in_msgs or \
+                'destino' in in_msgs:
+
+                div_cmd = '/diversidad'
+                div_par = 'diversity'
+                mult_cmd = '/multiplicador'
+                mult_par = 'multiplier'
+
+                params = {}
+
+                if div_cmd in in_msgs:
+                    params[div_par] = float(in_msgs[in_msgs.index(div_cmd)+1])
+                    params['new_'+div_par] = True
+
+                if mult_cmd in in_msgs:
+                    params[mult_par] = float(in_msgs[in_msgs.index(mult_cmd)+1])
+                    params['new_'+mult_par] = True
+
+
+                print('debería responder')
+                if first == True:
                     first = False
-                    s = predictor.generate_text()
-                message = utils.token_sequence_to_text([voc[i] for i in s])
-                send_message(message, chat)
-        except KeyError:
+                    set_action(chat, 'typing')
+                    s = predictor.generate_text(**params)
+                message = ''
+                if params != {}:
+                    print(str(params))
+
+                if random.randint(0,100) < 30:
+                    message += to + ': '
+                    message += utils.token_sequence_to_text([voc[i] for i in s])
+                    send_message(message, chat)
+                else:
+                    message += utils.token_sequence_to_text([voc[i] for i in s])
+                    send_message_reply(message, chat, msg)
+
+                print(chat,msg,user,message)
+            else:
+                print('no debería responder')
+        except Exception as e:
+            print(update)
+            print(e)
             pass
     
 

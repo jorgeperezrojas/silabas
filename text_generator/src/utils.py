@@ -233,6 +233,7 @@ class PredictorParByParReal:
         min_prob_tresh=0.1,
         max_prob_tresh=0.6,
         max_sentences=4,
+        multiplier = 0.6,
         mask_value = 0,input_mode='normal'):
 
         np.random.seed()
@@ -252,11 +253,12 @@ class PredictorParByParReal:
         self.max_sentences = max_sentences
         self.last_used_seed = seed_text
         self.use_random_seed = use_random_seed
+        self.multiplier = multiplier
 
         if use_random_seed == True:
             self.text_lines = open(input_text).read().split('\n')
 
-    def generate_text(self,length=100, mode='batch', multiplier = 2):
+    def generate_text(self, mode='batch', new_multiplier = False, multiplier = 0.6, new_diversity = False, diversity = 1):
 
         voc_ind = self.voc_ind
 
@@ -300,8 +302,17 @@ class PredictorParByParReal:
 
         #print('//////')
 
-        temper = self.max_temperature
-        mult = 0.6
+        if new_diversity == True:
+            temper = diversity
+        else:
+            temper = self.max_temperature
+
+        max_temper = temper
+
+        if new_multiplier == True:
+            mult = multiplier
+        else:
+            mult = self.multiplier
 
         # we can generate text now:
         count_sentences = 0
@@ -316,7 +327,7 @@ class PredictorParByParReal:
 
             if pred_token == self.split_symbol_index and count_sentences <= self.max_sentences / 2:
                 count_sentences += 1
-                temper = self.max_temperature
+                temper = max_temper
                 input_tokens = input_tokens # does not change the set of input tokens
 
             elif pred_token == self.split_symbol_index:
@@ -326,7 +337,7 @@ class PredictorParByParReal:
             else:
                 if pred_token == voc_ind['<pt>']:
                     count_sentences += 1
-                    temper = self.max_temperature
+                    temper = max_temper
 
                 elif pred_token == voc_ind['<cm>']:
                     temper = self.min_temperature
