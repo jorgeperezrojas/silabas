@@ -61,30 +61,27 @@ class ParByParGenerator:
         # first split paragraphs (not adding the split symbol)
         self.paragraphs = []
         current_par = []
-        counter = 1
+        counter = 0
 
         total_number_of_examples = 0
 
         for ind in ind_tokens:
-            if ind != split_symbol_index:
-                current_par.append(ind)
-            elif counter < paragraphs_to_join:
+            current_par.append(ind)
+            if ind == split_symbol_index:
                 counter += 1
-            else:
-                current_par.append(split_symbol_index)
+            if counter == paragraphs_to_join:
                 self.paragraphs.append(current_par)
-                total_number_of_examples += 0 if len(current_par) < int(max_len/2) else (
-                    (len(current_par) - 1) - int(max_len/2) if len(current_par) > max_len else (len(current_par) - int(max_len/2) - 1))
-                counter = 1
+                counter = 0
                 current_par = []
         # add a possible final paragraph
         if current_par != []:
             self.paragraphs.append(current_par)
-            total_number_of_examples += 0 if len(current_par) < int(max_len/2) else (
-                    (len(current_par) - 1) - int(max_len/2) if len(current_par) > max_len else (len(current_par) - int(max_len/2) - 1))
+            
+        par_sizes = [len(par) for par in self.paragraphs]
 
+        avg_length = np.average(par_sizes)
         # update steps per epoch
-        self.steps_per_epoch = int(total_number_of_examples / batch_size) + 1
+        self.steps_per_epoch = (avg_length - max_len)*len(self.paragraphs)*batch_size
 
 
     def generator(self):
@@ -112,7 +109,7 @@ class ParByParGenerator:
         while 1:
             par = random.choice(paragraphs) # pick a paragraph
             # limits
-            if int(max_len/2) > len(par) - 2:
+            if len(par) < int(max_len/2) + 2: # ignore paragraphs that are too short
                 continue
 
             i = random.randint(int(max_len/2), len(par) - 2) # pick an index in the paragraph between max_len/2 and len(par) - 2
@@ -133,6 +130,7 @@ class ParByParGenerator:
                     else:
                         X_batch[current_batch_index, j, ind_token] = 1
                 Y_batch[current_batch_index, Y_data] = 1
+
             elif mode == 'sparse':
                 # add it to the batch
                 for j,ind_token in enumerate(X_data):
@@ -148,6 +146,7 @@ class ParByParGenerator:
                     yield X_batch, Y_batch
                     X_batch = np.zeros((batch_size, max_len, n_features), dtype = np.bool)
                     Y_batch = np.zeros((batch_size, n_features), dtype = np.bool)
+
                 elif mode == 'sparse':
                     yield X_batch, Y_batch # !!!!
                     X_batch = np.zeros((batch_size, max_len), dtype = np.int32)
