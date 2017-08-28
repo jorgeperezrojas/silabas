@@ -1,5 +1,3 @@
-
-
 # coding: utf-8
 import numpy as np
 import random
@@ -7,6 +5,10 @@ import re
 from separador_silabas import silabas
 import sys
 import time
+from scipy import spatial
+from nltk.metrics import distance
+
+
 np.random.seed(59)
 random.seed(59)
 
@@ -82,7 +84,7 @@ class ParByParGenerator:
 
         avg_length = np.average(par_sizes)
         # update steps per epoch
-        self.steps_per_epoch = (avg_length - max_len)*len(self.paragraphs)*batch_size
+        self.steps_per_epoch = (avg_length - max_len)*len(self.paragraphs) / batch_size
 
 
     def generator(self):
@@ -227,14 +229,20 @@ class PredictorParByPar:
 class PredictorParByParReal:
     def __init__(self, model,voc,voc_ind,split_symbol_index,
         use_random_seed = True,
-        input_text = '../data/raw/horoscopo_raw.txt',
+        number_of_random_sentences = 2,
+        input_raw_text = '../data/raw/horoscopo_raw.txt',
         seed_text='su estúpido orgullo hará que usted se quede absolutamente solo . si no cambia , difícilmente logrará una mejora en su calidad de vida . ',
-        max_temperature=1,min_temperature=0.3,
-        min_prob_tresh=0.1,
+        max_temperature=1,
+        min_temperature=0.3,
+        min_prob_tresh=0.2,
         max_prob_tresh=0.6,
         max_sentences=4,
         multiplier = 0.6,
-        mask_value = 0,input_mode='normal'):
+        mask_value = -1,
+        exploration_breath = 10,
+        exploration_depth = 1,
+        input_mode='normal',
+        word_vectors_model=None):
 
         np.random.seed()
         random.seed(datetime.now())
@@ -254,53 +262,93 @@ class PredictorParByParReal:
         self.last_used_seed = seed_text
         self.use_random_seed = use_random_seed
         self.multiplier = multiplier
+        self.number_of_random_sentences = number_of_random_sentences
+        self.exploration_breath = exploration_breath
+        self.exploration_depth = exploration_depth
+        self.wvm = word_vectors_model
 
         if use_random_seed == True:
-            self.text_lines = open(input_text).read().split('\n')
+            self.text_lines = open(input_raw_text).read().split('\n')
 
-    def generate_text(self, mode='batch', new_multiplier = False, multiplier = 0.6, new_diversity = False, diversity = 1):
+        self.max_len = self.model.layers[0].input_shape[1]
+
+
+
+    def generate_text(self, mode='batch', 
+        new_multiplier = False, multiplier = 0.6, 
+        new_diversity = False, diversity = 1, similar_to = 'amor'):
 
         voc_ind = self.voc_ind
+        max_len = self.max_len
+        voc = self.voc
 
         if self.use_random_seed == True:
-            __t = self.text_lines[random.randint(0,len(self.text_lines))]
-            seed_text = '.'.join(__t.split('.')[0:2]) + '.'
+            ### elige self.number_of_random_sentences frases random
+            text = ''
+            for _ in range(0,self.number_of_random_sentences):
+                line = self.text_lines[random.randint(0,len(self.text_lines))]
+                sentences = line.strip().split('.')[:-1]
+                if len(sentences) < 1:
+                    continue
+                i = random.randint(0,len(sentences)-1)
+                sentence = sentences[i]
+                if sentence.strip() == '.':
+                    continue
+                text += sentence + '.'
+
+            seed_text = text
         else:
             seed_text = self.seed_text
 
-        max_len = self.model.layers[0].input_shape[1]
         seed_tokens, initial_seq = text_to_sequence_tokens(seed_text, self.voc, self.voc_ind)
 
-        #print(seed_text)
+        # esto es para borrar el ultimo caracter que siempre era ":"
+        initial_seq = initial_seq[:-1]
 
         if len(initial_seq) >= max_len:
             initial_seq = initial_seq[0:max_len]
         else:
-            initial_seq = [self.mask_value] * (len(initial_seq) - max_len) + initial_seq
+            initial_seq = [self.mask_value] * (max_len - len(initial_seq)) + initial_seq
 
-        text_tokens = [self.voc[token] for token in initial_seq]
+
+        text_tokens = [self.voc[token] for token in initial_seq if token != self.mask_value]
         input_tokens = initial_seq
-        output_tokens = []
+
+        if mode == 'interactive':
+            print(initial_seq)
+            sys.stdout.write('seed /// ')
+            sys.stdout.write(''.join(text_tokens))
+            sys.stdout.write('\n')
+            sys.stdout.flush()
+            sys.stdout.write('to drop ///')
 
         temper = self.max_temperature
         prob_tresh = self.min_prob_tresh
 
         n_features = len(self.voc)
         pred_token = -100
+
+
         ### generate until the first point
         while pred_token != voc_ind['<pt>']:
             X = np.zeros((1, max_len, n_features), dtype = np.bool)
             for k, j in enumerate(input_tokens):
-                X[0, k, j] = 1
+                if j == self.mask_value:
+                    continue
+                else:
+                    X[0, k, j] = 1
             pred_token = sample_token(self.model.predict(X, verbose=0), temper, prob_tresh)
             input_tokens = input_tokens[1:] + [pred_token]
 
-            # if mode == 'interactive':
-            #     sys.stdout.write('(t:' + str(temper)[:4] + ')')
-            #     sys.stdout.write(token_sequence_to_text([self.voc[pred_token]]))
-            #     sys.stdout.flush()
+            if mode == 'interactive':
+                sys.stdout.write(self.voc[pred_token])
+                sys.stdout.flush()
 
         #print('//////')
+        if mode == 'interactive':
+            sys.stdout.write('\n')
+            sys.stdout.flush()
+
 
         if new_diversity == True:
             temper = diversity
@@ -316,18 +364,27 @@ class PredictorParByParReal:
 
         # we can generate text now:
         count_sentences = 0
+        output_tokens = []
+        # put the prefix text generated so far
+        pref = ''
         while count_sentences < self.max_sentences:
 
             X = np.zeros((1, max_len, n_features), dtype = np.bool)
             for k, j in enumerate(input_tokens):
-                X[0, k, j] = 1
+                if j == self.mask_value:
+                    continue
+                else:
+                    X[0, k, j] = 1
 
-            pred_token = sample_token(self.model.predict(X, verbose=0), temper, prob_tresh)
-
+            #pred_token = sample_token(self.model.predict(X, verbose=0), temper, prob_tresh)
+            pred_token = new_sample_token(self.model.predict(X, verbose=0), temper, prob_tresh)
+            #pred_token = self.real_sample_token(self.model.predict(X, verbose=0), 
+            #    self.exploration_breath, temperature=temper, prob_tresh=prob_tresh, mode=mode, 
+            #    similar_to = similar_to, pref = pref)
 
             if pred_token == self.split_symbol_index and count_sentences <= self.max_sentences / 2:
-                count_sentences += 1
-                temper = max_temper
+                # count_sentences += 1
+                temper = max_temper 
                 input_tokens = input_tokens # does not change the set of input tokens
 
             elif pred_token == self.split_symbol_index:
@@ -338,6 +395,7 @@ class PredictorParByParReal:
                 if pred_token == voc_ind['<pt>']:
                     count_sentences += 1
                     temper = max_temper
+                    pref = ''
 
                 elif pred_token == voc_ind['<cm>']:
                     temper = self.min_temperature
@@ -349,14 +407,107 @@ class PredictorParByParReal:
                 input_tokens = input_tokens[1:] + [pred_token]
 
                 if mode == 'interactive':
-                    #sys.stdout.write('(t:' + str(temper)[:4] + ')')
-                    sys.stdout.write(token_sequence_to_text([self.voc[pred_token]]))
+                    sys.stdout.write(self.voc[pred_token])
                     sys.stdout.flush()
             
+            word = voc[pred_token]
+            if word[-1] != '>':
+                if len(pref) == 0 or pref[-1] == '+':
+                    pref += word[:-1]
+                else:
+                    pref += ' ' + word[:-1]
+                    
+
 
 
         return output_tokens # , token_sequence_to_text(output_tokens)
 
+    def real_sample_token(self, pred, number_of_examples, temperature=0.001, 
+        prob_tresh = 0.5, mode = 'non_interactive', similar_to = 'amor', pref = ''):
+        pred = pred[0]
+
+        # if random.random() > prob_tresh:
+        #     pred = np.asarray(pred).astype('float64')
+        #     pred = np.log(pred) / temperature
+        #     exp_pred = np.exp(pred)
+        #     pred = exp_pred / np.sum(exp_pred)
+        
+        #     out = np.random.choice(len(pred), number_of_examples,  replace=True, p=pred)
+        #     if mode == 'interactive':
+        #         print(str([str(i) + ': ' + self.voc[x] for i,x in enumerate(out)]))
+        #         i = int(input())
+        #         return out[i]
+        #     return out[0]
+        # else:
+        #     return np.argmax(pred)
+
+        out = np.random.choice(len(pred), number_of_examples,  replace=False, p=pred)
+        if mode == 'interactive':
+            print('possibilities: ' + str([str(i) + ': ' + self.voc[x] for i,x in enumerate(out)]))
+            print('prefix = ' + pref)
+
+        # if current sentence is too long and a <pt> is adviced, just return <pt>        
+        if len(pref) > 40 and (self.voc[out[0]] == '<pt>' or self.voc[out[0]] == '<nl>'):
+            return out[0]
+
+        # if current sentence is too long and a <cm> is adviced, just return <cm>
+        if len(pref) > 20 and self.voc[out[0]] == '<cm>':
+            return out[0]
+
+        ### pick the most similar
+        max_value = 0.5
+        selected_index = 0
+        selected_value = out[selected_index]
+
+        
+
+        for i,k in enumerate(out):
+            # compute similarity
+            sim = similarity(self.wvm, similar_to, pref + ' ' + self.voc[k][:-1])
+            
+            if mode == 'interactive':
+                print('comparing with: ' + self.voc[k][:-1] + ', value: ' + str(sim))
+            if sim > max_value + 0.05:
+                selected_index = i
+                selected_value = k 
+                max_value = sim
+
+        if mode == 'interactive':
+            print('selected: ' + self.voc[selected_value] + ' ' + str(out[selected_index]))
+            input()
+
+        return out[selected_index]
+
+################################################################
+################################################################
+################################################################
+################################################################
+################################################################
+
+
+
+def similarity(model,string1,string2):
+    vec1 = avg_feature_vector(string1.split(), model)
+    vec2 = avg_feature_vector(string2.split(), model)
+    return 1 - spatial.distance.cosine(vec1,vec2)
+
+
+def avg_feature_vector(words, model):
+        #function to average all words vectors in a given paragraph
+        featureVec = np.zeros((model.vector_size,), dtype="float32")
+        nwords = 0
+
+        for word in words:
+            try: # try to compute the word vectors
+                vec = model[word]
+            except KeyError:
+                continue
+            nwords = nwords+1
+            featureVec = np.add(featureVec, vec)
+
+        if(nwords>0):
+            featureVec = np.divide(featureVec, nwords)
+        return featureVec
    
         
  
@@ -382,6 +533,27 @@ def next_token(model, ind_tokens, voc, max_len, prob_tresh = 0.5, temperature=0,
     return sample_token(pred, temperature, prob_tresh=prob_tresh)
 
 
+def new_sample_token(pred, temperature=0, prob_tresh = 0.5):
+    pred = pred[0]
+
+    pred = np.asarray(pred).astype('float64')
+    pred = np.log(pred) / temperature
+    exp_pred = np.exp(pred)
+    pred = exp_pred / np.sum(exp_pred)
+    
+    out = np.random.choice(len(pred), 3, replace=False, p=pred)
+
+    if random.random() < prob_tresh:
+        # if mode == 'interactive':
+        #    # print('\nnot selecting ' + some.voc[out[0]])
+        #    # print('chosing between ' + some.voc[out[1]] + ' ' + some.voc[out[2]])
+        #    pass
+        if random.random() < 0.7:
+            return out[1]
+        else:
+            return out[2]
+    else:
+        return out[0]
 
 
 def sample_token(pred, temperature=0, prob_tresh = 0.5):
@@ -393,8 +565,10 @@ def sample_token(pred, temperature=0, prob_tresh = 0.5):
         exp_pred = np.exp(pred)
         pred = exp_pred / np.sum(exp_pred)
         #
-        probas = np.random.multinomial(1, pred, 1)
-        return np.argmax(probas)
+        #probas = np.random.multinomial(1, pred, 1)
+        #return np.argmax(probas)
+        out = np.random.choice(len(pred), p=pred)
+        return out
     else:
         return np.argmax(pred)
         #return np.random.choice(range(0,len(pred)), p=pred)
